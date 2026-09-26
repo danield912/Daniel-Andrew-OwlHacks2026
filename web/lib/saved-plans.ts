@@ -20,12 +20,22 @@ export type SavePlanInput = {
   routeCalculatedAt: string;
 };
 
+export type PlanRole = "leader" | "co_leader" | "member";
+
+export type PlanMember = {
+  userId: string;
+  name: string;
+  role: PlanRole;
+  isYou: boolean;
+};
+
 export type SavedPlan = SavePlanInput & {
   id: string;
   gameId: string;
   title: string;
-  role: "leader" | "co_leader" | "member";
+  role: PlanRole;
   createdAt: string;
+  members?: PlanMember[];
   game: {
     name: string;
     startsAt: string;
@@ -37,6 +47,29 @@ export type SavedPlan = SavePlanInput & {
     };
   };
 };
+
+export type InvitePreview = {
+  planId: string;
+  planTitle: string;
+  invitedBy: string;
+  expiresAt: string;
+  alreadyMember: boolean;
+  game: {
+    name: string;
+    startsAt: string;
+    venue: { name: string };
+  };
+};
+
+export const roleLabels: Record<PlanRole, string> = {
+  leader: "Leader",
+  co_leader: "Co-leader",
+  member: "Member",
+};
+
+export function canInvite(role: PlanRole) {
+  return role === "leader" || role === "co_leader";
+}
 
 export function planTime(value: string) {
   if (!Number.isFinite(Date.parse(value))) return "Time unavailable";

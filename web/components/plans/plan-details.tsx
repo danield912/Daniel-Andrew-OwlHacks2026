@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { plansRequest, planTime, directionsUrl, type SavedPlan } from "@/lib/saved-plans";
+import { plansRequest, planTime, directionsUrl, canInvite, roleLabels, type SavedPlan } from "@/lib/saved-plans";
 import { PlansShell, PlansLoading, PlansError, panelClass, actionClass } from "./shared";
 import { PlanMap } from "./plan-map";
+import { InvitePanel } from "./invite-panel";
+import { MembersList } from "./members-list";
 
 export function PlanDetails({ id }: { id: string }) {
   const [plan, setPlan] = useState<SavedPlan | null>(null);
@@ -29,7 +31,7 @@ export function PlanDetails({ id }: { id: string }) {
     <Link href="/plans" className="inline-block text-sm text-teal-200 hover:underline">← My Plans</Link>
     {error ? <PlansError message={error} retry={() => setAttempt(n => n + 1)} /> : !plan ? <PlansLoading /> : <>
       <section className={panelClass}>
-        <p className="text-sm font-semibold text-teal-200">{plan.role.replace("_", " ")} · {planTime(plan.game.startsAt)}</p>
+        <p className="text-sm font-semibold text-teal-200">{roleLabels[plan.role]} · {planTime(plan.game.startsAt)}</p>
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">{plan.title}</h1>
         <p className="mt-3 text-slate-300">{plan.game.name} · {plan.game.venue.name}</p>
         <p className="mt-3 text-sm text-slate-400">Route snapshot calculated {planTime(plan.routeCalculatedAt)}. Times are saved estimates or schedules, not live ETAs.</p>
@@ -53,6 +55,10 @@ export function PlanDetails({ id }: { id: string }) {
           <p className="mt-3 text-xs text-slate-400">Check the date and time in Google Maps; its route may differ. Route information powered by Google.</p>
         </>}
       </section>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <MembersList members={plan.members} />
+        {canInvite(plan.role) && <InvitePanel planId={plan.id} />}
+      </div>
     </>}
   </PlansShell>;
 }
