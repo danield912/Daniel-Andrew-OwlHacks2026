@@ -4,10 +4,10 @@ import { loadPlanForViewer, UUID_PATTERN } from "@/lib/plan-access";
 import { parseStops, PlacesError, withPlaceDetails, type PlanStop } from "@/lib/places";
 import { createClient } from "@/lib/supabase/server";
 
-const NOT_ALLOWED = "Only the plan leader or co-leader can change stops.";
+const NOT_ALLOWED = "Only the plan leader can change stops. Suggest a spot instead and the leader can approve it.";
 
 // PUT /api/plans/[id]/stops  body { stops: [{ placeId, slot, time }] }
-// Replaces all stops. -> 200 { stops: PlanStop[] } (same shape as GET /api/plans/[id]).
+// Leader only. Replaces all stops. -> 200 { stops: PlanStop[] } (same shape as GET /api/plans/[id]).
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -21,7 +21,7 @@ export async function PUT(
   const plan = await loadPlanForViewer(supabase, id, authData.user.id);
   if (plan === "error") return jsonError("We couldn’t load this plan. Please try again.", 500);
   if (!plan) return jsonError("Plan not found.", 404);
-  if (plan.role === "member") return jsonError(NOT_ALLOWED, 403);
+  if (plan.role !== "leader") return jsonError(NOT_ALLOWED, 403);
 
   let body: unknown;
   try {

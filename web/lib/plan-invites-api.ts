@@ -20,6 +20,16 @@ export type PlanMember = {
   name: string;
   role: "leader" | "co_leader" | "member";
   isYou: boolean;
+  // Where this person is coming from (null until they add it).
+  start?: MemberStart | null;
+};
+
+export type MemberStart = {
+  origin: string;
+  location: { lat: number; lng: number } | null;
+  travelMode: "TRANSIT" | "DRIVE";
+  route: Record<string, unknown> | null;
+  routeCalculatedAt: string | null;
 };
 
 export type InvitePreview = {

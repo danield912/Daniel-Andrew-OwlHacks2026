@@ -1,13 +1,11 @@
 "use client";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut, Trash2 } from "lucide-react";
 import type { PlanRole } from "@/lib/saved-plans";
-import { panelClass } from "./shared";
-
-const dangerClass = "inline-flex items-center justify-center gap-2 rounded-xl bg-red-500 px-5 py-3 font-semibold text-white transition hover:bg-red-400 disabled:cursor-wait disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-red-300";
-const outlineDangerClass = "inline-flex items-center justify-center gap-2 rounded-xl border border-red-400/60 px-5 py-3 font-semibold text-red-200 transition hover:bg-red-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-red-300";
-const cancelClass = "rounded-xl border border-white/20 px-5 py-3 font-semibold hover:bg-white/10 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-teal-300";
+import { Button } from "@/components/gp/button";
+import { Modal } from "@/components/gp/modal";
+import { InlineAlert } from "@/components/gp/states";
 
 async function planActionRequest(path: string, init: RequestInit, fallback: string) {
   const response = await fetch(path, { cache: "no-store", ...init });
@@ -23,14 +21,14 @@ async function planActionRequest(path: string, init: RequestInit, fallback: stri
 export function PlanActions({ planId, role }: { planId: string; role: PlanRole }) {
   const isLeader = role === "leader";
   const router = useRouter();
-  const dialog = useRef<HTMLDialogElement>(null);
+  const [open, setOpen] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
 
   const copy = isLeader
     ? {
         heading: "Delete plan",
-        description: "Deleting removes this plan for everyone in it, including their invite links.",
+        description: "Removes this plan for everyone in it, including their invite links.",
         button: "Delete plan",
         confirmTitle: "Delete this plan for everyone?",
         confirmBody: "This can’t be undone. Everyone in the plan will lose access.",
@@ -41,7 +39,7 @@ export function PlanActions({ planId, role }: { planId: string; role: PlanRole }
       }
     : {
         heading: "Leave plan",
-        description: "Leaving removes this plan from your Joined list. Everyone else keeps it.",
+        description: "Removes this plan from your Joined list. Everyone else keeps it.",
         button: "Leave plan",
         confirmTitle: "Leave this plan?",
         confirmBody: "You’ll need a new invite link to rejoin.",
@@ -51,25 +49,15 @@ export function PlanActions({ planId, role }: { planId: string; role: PlanRole }
         notice: "left",
       };
 
-  function open() {
-    setError("");
-    dialog.current?.showModal();
-  }
-
-  function close() {
-    if (!working) dialog.current?.close();
-  }
-
   async function confirm() {
     setWorking(true);
     setError("");
-    const path = `/api/plans/${encodeURIComponent(planId)}${isLeader ? "" : "/leave"}`;
     try {
-      await planActionRequest(path, {
+      await planActionRequest(`/api/plans/${encodeURIComponent(planId)}${isLeader ? "" : "/leave"}`, {
         method: isLeader ? "DELETE" : "POST",
         signal: AbortSignal.timeout(15000),
       }, copy.failed);
-      dialog.current?.close();
+      setOpen(false);
       router.push(`/plans?notice=${copy.notice}`);
     } catch (caught) {
       setError(caught instanceof Error && caught.name === "TimeoutError"
@@ -79,33 +67,32 @@ export function PlanActions({ planId, role }: { planId: string; role: PlanRole }
     }
   }
 
-  return <section aria-labelledby="plan-actions-heading" className={`${panelClass} border-red-400/20`}>
-    <h2 id="plan-actions-heading" className="text-xl font-bold">{copy.heading}</h2>
-    <p className="mt-2 text-sm text-slate-400">{copy.description}</p>
-    <button type="button" onClick={open} className={`${isLeader ? dangerClass : outlineDangerClass} mt-5`}>
-      {isLeader ? <Trash2 size={18} aria-hidden="true" /> : <LogOut size={18} aria-hidden="true" />}
-      {copy.button}
-    </button>
+  const Icon = isLeader ? Trash2 : LogOut;
 
-    <dialog
-      ref={dialog}
-      aria-labelledby="confirm-title"
-      aria-describedby="confirm-body"
-      onCancel={(event) => { if (working) event.preventDefault(); }}
-      onClick={(event) => { if (event.target === dialog.current) close(); }}
-      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-3xl border border-white/10 bg-[#10232a] p-0 text-slate-100 backdrop:bg-black/70"
+  return <section aria-labelledby="plan-actions-heading" className="rounded-3xl border border-rose-400/15 bg-rose-500/[0.03] p-5 sm:p-6">
+    <h2 id="plan-actions-heading" className="font-display text-lg font-bold text-white">{copy.heading}</h2>
+    <p className="mt-1 text-sm text-slate-400">{copy.description}</p>
+    <Button
+      variant={isLeader ? "danger" : "outline-danger"}
+      size="sm"
+      className="mt-4"
+      icon={<Icon size={16} aria-hidden="true" />}
+      onClick={() => { setError(""); setOpen(true); }}
+    >{copy.button}</Button>
+
+    <Modal
+      open={open}
+      onClose={() => setOpen(false)}
+      locked={working}
+      tone="danger"
+      title={copy.confirmTitle}
+      description={copy.confirmBody}
     >
-      <div className="p-6 sm:p-8">
-        <h3 id="confirm-title" className="text-xl font-bold">{copy.confirmTitle}</h3>
-        <p id="confirm-body" className="mt-3 text-slate-300">{copy.confirmBody}</p>
-        {error && <p role="alert" className="mt-4 rounded-xl bg-amber-200/10 p-4 text-sm text-amber-100">{error}</p>}
-        <div className="mt-6 flex flex-wrap justify-end gap-3">
-          <button type="button" autoFocus disabled={working} onClick={close} className={cancelClass}>Cancel</button>
-          <button type="button" disabled={working} onClick={confirm} className={dangerClass}>
-            {working ? copy.working : copy.confirm}
-          </button>
-        </div>
+      {error && <InlineAlert tone="error" className="mb-4">{error}</InlineAlert>}
+      <div className="flex flex-wrap justify-end gap-3">
+        <Button variant="secondary" disabled={working} onClick={() => setOpen(false)} data-autofocus>Cancel</Button>
+        <Button variant="danger" loading={working} loadingText={copy.working} onClick={confirm} icon={<Icon size={16} aria-hidden="true" />}>{copy.confirm}</Button>
       </div>
-    </dialog>
+    </Modal>
   </section>;
 }

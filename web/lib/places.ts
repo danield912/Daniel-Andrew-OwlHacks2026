@@ -269,6 +269,30 @@ export async function suggestPlaces(options: {
   return places;
 }
 
+// ---------- Crew starting points ----------
+
+const TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
+const PHILLY: LatLng = { lat: 39.9526, lng: -75.1652 };
+
+// Finds map coordinates for an address a person typed ("Fishtown", "1600 N
+// Broad St"). Biased toward Philadelphia. Returns null if nothing matches.
+export async function geocodeAddress(text: string): Promise<{ location: LatLng; formattedAddress: string } | null> {
+  const data = await googleFetch(TEXT_SEARCH_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      textQuery: text,
+      maxResultCount: 1,
+      languageCode: "en",
+      regionCode: "us",
+      locationBias: { circle: { center: { latitude: PHILLY.lat, longitude: PHILLY.lng }, radius: 50_000 } },
+    }),
+  }, "places.location,places.formattedAddress");
+  const place = (data?.places ?? [])[0] as GooglePlace | undefined;
+  const location = place ? locationOf(place) : null;
+  return location ? { location, formattedAddress: place?.formattedAddress ?? text } : null;
+}
+
 // ---------- Stops ----------
 
 const DETAILS_FIELDS = "id,displayName,formattedAddress,location,primaryType,primaryTypeDisplayName";

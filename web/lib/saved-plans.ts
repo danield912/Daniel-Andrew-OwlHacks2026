@@ -46,11 +46,30 @@ export type PlanStop = StopInput & {
   place: Pick<Place, "name" | "address" | "location" | "category"> | null;
 };
 
+// Where one person in the crew is coming from, with their own route.
+export type MemberStart = {
+  origin: string;
+  location: { lat: number; lng: number } | null; // null if it couldn't be mapped
+  travelMode: "TRANSIT" | "DRIVE";
+  route: RouteSnapshot | null;
+  routeCalculatedAt: string | null;
+};
+
 export type PlanMember = {
   userId: string;
   name: string;
   role: PlanRole;
   isYou: boolean;
+  start?: MemberStart | null; // null until they add their starting point
+};
+
+// A stop a co-leader or member suggested; the leader approves or declines it.
+export type StopSuggestion = StopInput & {
+  id: string;
+  status: "pending" | "approved" | "declined";
+  createdAt: string;
+  suggestedBy: { userId: string; name: string; isYou: boolean };
+  place: PlanStop["place"];
 };
 
 // Saved routes can be cleared later (Google's storage rules), so a saved plan's
@@ -65,6 +84,7 @@ export type SavedPlan = Omit<SavePlanInput, "routeSnapshot" | "routeCalculatedAt
   createdAt: string;
   members?: PlanMember[];
   stops?: PlanStop[];
+  suggestions?: StopSuggestion[];
   game: {
     name: string;
     startsAt: string;
@@ -96,8 +116,24 @@ export const roleLabels: Record<PlanRole, string> = {
   member: "Member",
 };
 
+// The crew's tier list: what each role can do.
+export const ROLE_INFO: Record<PlanRole, { emoji: string; label: string; can: string[] }> = {
+  leader: { emoji: "👑", label: "Leader", can: ["Adds and removes stops", "Approves suggestions", "Changes roles and removes people", "Invites friends", "Deletes the plan"] },
+  co_leader: { emoji: "⭐", label: "Co-leader", can: ["Invites friends", "Suggests stops for the leader to approve", "Can leave the plan"] },
+  member: { emoji: "🎟️", label: "Member", can: ["Suggests stops for the leader to approve", "Can leave the plan"] },
+};
+
 export function canInvite(role: PlanRole) {
   return role === "leader" || role === "co_leader";
+}
+
+// Only the leader changes the plan directly; everyone else suggests.
+export function canEditStops(role: PlanRole) {
+  return role === "leader";
+}
+
+export function myMember(plan: Pick<SavedPlan, "members">) {
+  return plan.members?.find(member => member.isYou) ?? null;
 }
 
 export function planTime(value: string) {
@@ -126,7 +162,8 @@ export async function plansRequest(path: string, init: RequestInit = {}) {
 export function directionsUrl(origin: string, destination: string, mode: string) {
   const url = new URL("https://www.google.com/maps/dir/");
   url.searchParams.set("api", "1");
-  url.searchParams.set("origin", origin);
+  // No origin: Google Maps starts from the person's current location.
+  if (origin.trim()) url.searchParams.set("origin", origin);
   url.searchParams.set("destination", destination);
   url.searchParams.set("travelmode", mode === "TRANSIT" ? "transit" : mode === "WALK" ? "walking" : "driving");
   return url.toString();

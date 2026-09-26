@@ -1,11 +1,15 @@
 "use client";
 import { useRef, useState } from "react";
-import Link from "next/link";
-import { CheckCircle2, Save } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { ArrowRight, LogIn, Save } from "lucide-react";
 import { plansRequest, type SavePlanInput } from "@/lib/saved-plans";
-import { actionClass } from "./shared";
+import { Button, ButtonLink } from "@/components/gp/button";
+import { ConfettiBurst, SuccessCheck } from "@/components/gp/confetti";
+import { InlineAlert } from "@/components/gp/states";
+import { useToast } from "@/components/gp/toast";
 
 export function SavePlanButton({ input }: { input: SavePlanInput }) {
+  const toast = useToast();
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -29,6 +33,7 @@ export function SavePlanButton({ input }: { input: SavePlanInput }) {
         throw new Error("The server did not confirm a saved plan. Please retry.");
       }
       setSavedId(data.plan.id);
+      toast.success({ title: "Plan saved 🎉", body: "Find it anytime under My Plans." });
     } catch (caught) {
       setError(caught instanceof Error && caught.name === "TimeoutError"
         ? "Saving timed out. Retry to check or finish saving this same plan."
@@ -40,12 +45,30 @@ export function SavePlanButton({ input }: { input: SavePlanInput }) {
   }
 
   return <div className="space-y-3">
-    {savedId ? <div role="status" className="flex flex-wrap items-center gap-4 text-teal-200">
-      <span className="flex items-center gap-2"><CheckCircle2 aria-hidden="true" size={20} />Plan saved</span>
-      <Link className={actionClass} href={`/plans/${encodeURIComponent(savedId)}`}>View saved plan</Link>
-    </div> : <button type="button" disabled={saving} onClick={save} className={actionClass}>
-      <Save size={18} aria-hidden="true" />{saving ? "Saving plan…" : "Save plan"}
-    </button>}
-    {error && <p role="alert" className="rounded-xl bg-amber-200/10 p-4 text-sm text-amber-100">{error}</p>}
+    <AnimatePresence mode="wait" initial={false}>
+      {savedId ? <motion.div
+        key="saved"
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="relative flex flex-wrap items-center gap-4 rounded-2xl border border-mint-300/30 bg-mint-300/[0.08] p-4"
+        role="status"
+      >
+        <span className="relative"><SuccessCheck size={44} /><ConfettiBurst /></span>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-white">Plan saved</p>
+          <p className="text-sm text-slate-300">Add pregame spots and invite your crew next.</p>
+        </div>
+        <ButtonLink href={`/plans/${encodeURIComponent(savedId)}`} size="md" iconRight={<ArrowRight size={17} aria-hidden="true" />}>Open plan</ButtonLink>
+      </motion.div> : <motion.div key="save" exit={{ opacity: 0, scale: 0.95 }}>
+        <Button size="lg" className="w-full" loading={saving} loadingText="Saving plan…" icon={<Save size={18} aria-hidden="true" />} onClick={save}>
+          Save plan
+        </Button>
+      </motion.div>}
+    </AnimatePresence>
+    {error && <InlineAlert tone="error">{error}</InlineAlert>}
+    {/sign in/i.test(error) && <div className="flex flex-wrap gap-2">
+      <ButtonLink href="/auth/login?next=/" size="sm" icon={<LogIn size={16} aria-hidden="true" />}>Sign in to save</ButtonLink>
+      <ButtonLink href="/auth/sign-up?next=/" size="sm" variant="secondary">Create a free account</ButtonLink>
+    </div>}
   </div>;
 }

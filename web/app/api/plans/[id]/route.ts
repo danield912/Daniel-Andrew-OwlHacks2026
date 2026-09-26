@@ -6,6 +6,7 @@ import {
   type PlanMember,
 } from "@/lib/plan-invites-api";
 import { savedStops, withPlaceDetails, type PlanVenue, type PlanStop } from "@/lib/places";
+import { serializeMember, type MemberRow, type SuggestionRow } from "@/lib/plan-crew-api";
 import { createClient } from "@/lib/supabase/server";
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" };
@@ -53,35 +54,43 @@ export async function GET(
   if (error) return jsonError("We couldn’t load this plan. Please try again.", 500);
   if (!data) return jsonError("Plan not found.", 404);
 
-  // Names and roles only; get_plan_members returns nothing to non-members.
-  const { data: memberRows, error: membersError } = await supabase.rpc(
-    "get_plan_members",
-    { p_plan_id: id },
-  );
-  // A members lookup problem (e.g. the invites migration not applied yet)
-  // must not block opening the plan itself.
-  if (membersError) console.error("get_plan_members failed:", membersError.message);
-  type MemberRow = { user_id: string; name: string; role: PlanMember["role"] };
-  const members: PlanMember[] = (membersError ? [] : (memberRows as MemberRow[] | null) ?? []).map(
-    (member) => ({
-      userId: member.user_id,
-      name: member.name,
-      role: member.role,
-      isYou: member.user_id === user.id,
-    }),
-  );
+  // Names, roles and starting points; get_plan_members returns nothing to non-members.
+  const [membersResult, suggestionsResult] = await Promise.all([
+    supabase.rpc("get_plan_members", { p_plan_id: id }),
+    supabase.rpc("get_stop_suggestions", { p_plan_id: id }),
+  ]);
+  // A lookup problem (e.g. a migration not applied yet) must not block
+  // opening the plan itself.
+  if (membersResult.error) console.error("get_plan_members failed:", membersResult.error.message);
+  if (suggestionsResult.error) console.error("get_stop_suggestions failed:", suggestionsResult.error.message);
+  const members: PlanMember[] = ((membersResult.error ? [] : membersResult.data) as MemberRow[] | null ?? [])
+    .map((member) => serializeMember(member, user.id));
+  const suggestionRows = (suggestionsResult.error ? [] : suggestionsResult.data) as SuggestionRow[] | null ?? [];
 
-  // Stops store only Google place IDs; names and addresses are fetched fresh.
+  // Stops and suggestions store only Google place IDs; names and addresses
+  // are fetched fresh, in one batch.
   const row = data as unknown as SavedPlanRow & { game?: { venue?: PlanVenue } };
   const saved = savedStops(row.itinerary);
+  const suggested = suggestionRows.map((s) => ({ placeId: s.place_id, slot: s.slot, time: s.stop_time }));
   const venue = row.game?.venue;
-  const stops: PlanStop[] = saved.length && venue
-    ? await withPlaceDetails(saved, venue)
-    : saved.map((stop) => ({ ...stop, place: null }));
+  const detailed: PlanStop[] = (saved.length || suggested.length) && venue
+    ? await withPlaceDetails([...saved, ...suggested], venue)
+    : [...saved, ...suggested].map((stop) => ({ ...stop, place: null }));
+  const stops = detailed.slice(0, saved.length);
+  const suggestions = suggestionRows.map((s, index) => ({
+    id: s.id,
+    placeId: s.place_id,
+    slot: s.slot,
+    time: new Date(s.stop_time).toISOString(),
+    status: s.status,
+    createdAt: s.created_at,
+    suggestedBy: { userId: s.suggested_by, name: s.suggested_by_name, isYou: s.suggested_by === user.id },
+    place: detailed[saved.length + index]?.place ?? null,
+  }));
 
   try {
     return NextResponse.json(
-      { plan: { ...serializeSavedPlan(row, user.id), members, stops } },
+      { plan: { ...serializeSavedPlan(row, user.id), members, stops, suggestions } },
       { headers: PRIVATE_HEADERS },
     );
   } catch {

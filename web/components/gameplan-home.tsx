@@ -1,679 +1,253 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { SavePlanButton } from "@/components/plans/save-plan-button";
-import { directionsUrl } from "@/lib/saved-plans";
-import { phillyClockTime, phillyTimeOnGameDay } from "@/lib/philly-time";
-import Link from "next/link";
-import {
-  ArrowRight,
-  CalendarDays,
-  CheckCircle2,
-  MapPin,
-  Search,
-  Ticket,
-} from "lucide-react";
-
-type Game = {
-  id: string;
-  name: string;
-  team: string;
-  startTime: string | null;
-  venue: string;
-};
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { AnimatePresence, motion } from "motion/react";
+import { ArrowDown, ArrowRight, CalendarHeart, Search, X } from "lucide-react";
+import { TEAMS, TEAM_ORDER, cleanOpponent, tidyMatchup, type TeamKey } from "@/lib/team-style";
+import { AppShell } from "@/components/gp/app-shell";
+import { ButtonLink, Button } from "@/components/gp/button";
+import { Stadium3D } from "@/components/gp/stadium-3d";
+import { FilterChips } from "@/components/gp/tabs";
+import { EmptyState, ErrorState, SkeletonCards } from "@/components/gp/states";
+import { AnimatedNumber } from "@/components/gp/animated-number";
+import { CountdownBadge } from "@/components/gp/countdown";
+import { Reveal, staggerParent } from "@/components/gp/reveal";
+import { useUser } from "@/components/gp/user";
+import { GameCard } from "@/components/home/game-card";
+import { PlanSheet } from "@/components/home/plan-sheet";
+import { formatGameTime, type Game } from "@/components/home/types";
 
 type ApiGame = {
   id: string;
-  team: "eagles" | "phillies" | "sixers" | "temple";
+  team: TeamKey;
   homeTeam: string;
   opponent: string;
   startsAt: string;
   venue: { name: string };
 };
 
-type PlanResult = {
-  status: "ok";
-  departureTime: string;
-  arrivalTime: string;
-  leaveByTime: string;
-  scheduledDepartureTime?: string;
-  scheduledTransitArrivalTime?: string;
-  durationMinutes: number;
-  durationKind: "scheduled" | "estimated";
-  steps: string[];
-  warnings: string[];
-};
+type TeamFilter = "all" | TeamKey;
 
-const teamLabels = {
-  eagles: "Eagles",
-  phillies: "Phillies",
-  sixers: "76ers",
-  temple: "Temple",
-};
-
-const teams = ["All teams", "Eagles", "Phillies", "76ers", "Temple"];
-
-const inputClass =
-  "mt-2 w-full rounded-xl border border-white/15 bg-[#14272d] " +
-  "px-4 py-3 text-white outline-none focus-visible:ring-2 " +
-  "focus-visible:ring-teal-300";
-
-const buttonClass =
-  "inline-flex items-center justify-center gap-2 rounded-xl " +
-  "bg-teal-300 px-5 py-3 font-semibold text-slate-950 " +
-  "transition hover:bg-teal-200 motion-safe:hover:-translate-y-0.5 " +
-  "focus-visible:outline-none focus-visible:ring-2 " +
-  "focus-visible:ring-white focus-visible:ring-offset-2 " +
-  "focus-visible:ring-offset-[#09171b]";
-
-function formatTime(value: string | null) {
-  if (!value) return "Date or time to be confirmed";
-
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
+const STEPS = [
+  { emoji: "🎟️", title: "Pick your game", body: "Eagles, Phillies, Sixers, or Temple. Every upcoming home game in one place." },
+  { emoji: "🗺️", title: "Plan the whole day", body: "When to leave, the SEPTA or driving route, and bars or food near the stadium." },
+  { emoji: "🙌", title: "Bring your crew", body: "Share one link. Everyone sees the same plan, stops, and schedule." },
+];
 
 export function GamePlanHome() {
+  const params = useSearchParams();
+  const { status, name } = useUser();
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
-  const [query, setQuery] = useState("");
-  const [team, setTeam] = useState("All teams");
-  const [selected, setSelected] = useState<Game | null>(null);
+  const [query, setQuery] = useState(params.get("q") ?? "");
+  const [team, setTeam] = useState<TeamFilter>("all");
+  const [sheetGame, setSheetGame] = useState<Game | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
-  const [origin, setOrigin] = useState("");
-  const [transport, setTransport] = useState("Transit");
-  const [budget, setBudget] = useState("$ — Budget-friendly");
-  const [pregame, setPregame] = useState("Food");
-  const [arriveBy, setArriveBy] = useState("");
-  const [showSummary, setShowSummary] = useState(false);
-  const [planResult, setPlanResult] = useState<PlanResult | null>(null);
-  const [planError, setPlanError] = useState("");
-  const [planning, setPlanning] = useState(false);
-  const [routeCalculatedAt, setRouteCalculatedAt] = useState("");
-
-  const formHeading = useRef<HTMLHeadingElement>(null);
-  const summaryHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { setQuery(params.get("q") ?? ""); }, [params]);
 
   useEffect(() => {
     const controller = new AbortController();
-
     async function loadGames() {
       setLoading(true);
       setError("");
-
       try {
-        const response = await fetch("/api/games", {
-          signal: controller.signal,
-        });
-
-        if (
-          response.redirected ||
-          !response.headers.get("content-type")?.includes("application/json")
-        ) {
+        const response = await fetch("/api/games", { signal: controller.signal });
+        if (response.redirected || !response.headers.get("content-type")?.includes("application/json")) {
           throw new Error("Please sign in to load upcoming games.");
         }
-
         const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || "We couldn’t load the games.");
-        }
-
-        if (!Array.isArray(data.games)) {
-          throw new Error("The games response was unexpected. Please try again.");
-        }
-
-        const upcoming: Game[] = (data.games as ApiGame[]).map((game) => ({
-          id: game.id,
-          name: game.opponent
-            ? `${game.homeTeam} vs. ${game.opponent}`
-            : game.homeTeam,
-          team: teamLabels[game.team],
-          startTime: Number.isFinite(Date.parse(game.startsAt))
-            ? game.startsAt
-            : null,
-          venue: game.venue.name,
-        }));
-
-        upcoming.sort(
-          (a, b) =>
-            (a.startTime ? Date.parse(a.startTime) : Infinity) -
-            (b.startTime ? Date.parse(b.startTime) : Infinity),
-        );
-
+        if (!response.ok) throw new Error(data.error || "We couldn’t load the games.");
+        if (!Array.isArray(data.games)) throw new Error("The games response was unexpected. Please try again.");
+        const upcoming: Game[] = (data.games as ApiGame[])
+          .filter(game => game.team in TEAMS)
+          .map(game => ({
+            id: game.id,
+            name: tidyMatchup(game.opponent ? `${game.homeTeam} vs. ${game.opponent}` : game.homeTeam),
+            ...cleanOpponent(game.opponent ?? ""),
+            team: game.team,
+            startTime: Number.isFinite(Date.parse(game.startsAt)) ? game.startsAt : null,
+            venue: game.venue.name,
+          }));
+        upcoming.sort((a, b) => (a.startTime ? Date.parse(a.startTime) : Infinity) - (b.startTime ? Date.parse(b.startTime) : Infinity));
         setGames(upcoming);
       } catch (caught) {
         if (controller.signal.aborted) return;
-
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "Something went wrong. Please try again.",
-        );
+        setError(caught instanceof Error ? caught.message : "Something went wrong. Please try again.");
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
     }
-
     loadGames();
     return () => controller.abort();
   }, [attempt]);
 
-  useEffect(() => {
-    if (selected) formHeading.current?.focus();
-  }, [selected]);
+  const visibleGames = useMemo(() => games.filter(game =>
+    (team === "all" || game.team === team) &&
+    `${game.name} ${game.venue} ${TEAMS[game.team].name}`.toLowerCase().includes(query.trim().toLowerCase()),
+  ), [games, team, query]);
 
-  useEffect(() => {
-    if (showSummary) summaryHeading.current?.focus();
-  }, [showSummary]);
+  const counts = useMemo(() => Object.fromEntries(TEAM_ORDER.map(key => [key, games.filter(game => game.team === key).length])) as Record<TeamKey, number>, [games]);
+  const nextGame = games.find(game => game.startTime && Date.parse(game.startTime) > Date.now()) ?? null;
 
-  const visibleGames = games.filter(
-    (game) =>
-      (team === "All teams" || game.team === team) &&
-      `${game.name} ${game.venue}`
-        .toLowerCase()
-        .includes(query.toLowerCase()),
-  );
-
-  const arrivalTime =
-    selected?.startTime && arriveBy
-      ? phillyTimeOnGameDay(selected.startTime, arriveBy)
-      : null;
-
-  const kickoffClock = selected?.startTime
-    ? phillyClockTime(selected.startTime)
-    : "";
-
-  let arrivalError = "";
-  if (selected && !selected.startTime) {
-    arrivalError = "This game’s start time isn’t confirmed yet, so we can’t plan your arrival.";
-  } else if (selected?.startTime && !arrivalTime) {
-    arrivalError = "Choose when you want to arrive at the stadium.";
-  } else if (selected?.startTime && arrivalTime) {
-    if (Date.parse(arrivalTime) > Date.parse(selected.startTime)) {
-      arrivalError = `Pick a time at or before kickoff (${formatTime(selected.startTime)}).`;
-    } else if (Date.parse(arrivalTime) <= Date.now()) {
-      arrivalError = "That arrival time has already passed. Pick a later time.";
-    }
+  function openPlan(game: Game) {
+    setSheetGame(game);
+    setSheetOpen(true);
   }
 
-  return (
-    <div className="min-h-screen bg-[#09171b] text-slate-100">
-      <header className="border-b border-white/10 bg-[#0d2026]">
-        <nav
-          aria-label="Main navigation"
-          className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-5"
+  return <AppShell>
+    {/* Hero */}
+    <section className="relative grid items-center gap-6 lg:grid-cols-[1.1fr_1fr]">
+      <div className="relative z-10">
+        <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="gp-eyebrow">
+          {status === "signed-in" && name ? `Welcome back, ${name.split(" ")[0]} 👋` : "Your city · Your crew · Your game"}
+        </motion.p>
+        <motion.h1
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="mt-4 font-display text-5xl font-extrabold leading-[0.95] tracking-tight text-white sm:text-6xl lg:text-7xl"
         >
-          <Link href="/" className="flex items-center gap-3 font-bold">
-            <span className="rounded-xl bg-teal-300 p-2 text-slate-950">
-              <Ticket aria-hidden="true" size={22} />
+          Great game.<br /><span className="gp-gradient-text">Even better day.</span>
+        </motion.h1>
+        <motion.p initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }} className="mt-5 max-w-lg text-lg leading-relaxed text-slate-300">
+          Plan your whole Philly game day: when to leave, how to get there, where to pregame, and where to go after. Then bring your crew.
+        </motion.p>
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} className="mt-8 flex flex-wrap gap-3">
+          <ButtonLink href="#games" size="lg" iconRight={<ArrowDown size={18} aria-hidden="true" />}>Find a game</ButtonLink>
+          <ButtonLink href="/plans" size="lg" variant="secondary" icon={<CalendarHeart size={18} aria-hidden="true" />}>My plans</ButtonLink>
+        </motion.div>
+
+        <motion.dl initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="mt-10 grid grid-cols-3 gap-4 sm:flex sm:flex-wrap sm:gap-x-10">
+          {[
+            { value: loading ? null : games.length, label: "Home games ahead" },
+            { value: 4, label: "Philly teams" },
+            { value: 3, label: "Stadiums covered" },
+          ].map(stat => <div key={stat.label}>
+            <dd className="font-score text-4xl font-bold text-white tabular">{stat.value === null ? "—" : <AnimatedNumber value={stat.value} />}</dd>
+            <dt className="text-sm text-slate-400">{stat.label}</dt>
+          </div>)}
+        </motion.dl>
+      </div>
+
+      <div className="relative -mx-4 sm:mx-0">
+        <Stadium3D />
+        {/* Next up card floating over the field */}
+        <AnimatePresence>
+          {nextGame && <motion.button
+            type="button"
+            onClick={() => openPlan(nextGame)}
+            initial={{ opacity: 0, y: 30, rotateX: 20 }}
+            animate={{ opacity: 1, y: 0, rotateX: 0 }}
+            transition={{ delay: 0.5, type: "spring", stiffness: 160, damping: 18 }}
+            whileHover={{ y: -4, scale: 1.02 }}
+            className="absolute bottom-2 left-4 right-4 flex items-center gap-4 rounded-3xl border border-white/10 bg-night-800/80 p-4 text-left shadow-lift backdrop-blur-xl sm:left-auto sm:right-6 sm:w-80"
+          >
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-2xl" style={{ background: TEAMS[nextGame.team].gradient }} aria-hidden="true">{TEAMS[nextGame.team].emoji}</span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-mint-300">Next up</span>
+                {nextGame.startTime && <CountdownBadge startsAt={nextGame.startTime} className="px-2 py-0.5" />}
+              </span>
+              <span className="mt-0.5 block truncate font-semibold text-white">{TEAMS[nextGame.team].name} vs. {nextGame.opponent || "TBA"}</span>
+              <span className="block truncate text-sm text-slate-400">{formatGameTime(nextGame.startTime, true)}</span>
             </span>
-            Philly GamePlan
-          </Link>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/plans"
-              className="rounded-xl bg-teal-300/10 px-4 py-2 text-sm font-semibold text-teal-200 hover:bg-teal-300/20 focus-visible:outline focus-visible:outline-teal-300"
-            >
-              My Plans
-            </Link>
+            <ArrowRight size={18} className="shrink-0 text-mint-300" aria-hidden="true" />
+          </motion.button>}
+        </AnimatePresence>
+      </div>
+    </section>
 
-            <Link
-              href="/auth/login"
-              className="rounded-xl border border-white/20 px-4 py-2 text-sm hover:bg-white/10 focus-visible:outline focus-visible:outline-teal-300"
-            >
-              Account
-            </Link>
+    {/* How it works */}
+    <section aria-labelledby="how-heading" className="mt-16 sm:mt-24">
+      <Reveal><h2 id="how-heading" className="gp-eyebrow">How it works</h2></Reveal>
+      <ol className="mt-5 grid gap-4 md:grid-cols-3">
+        {STEPS.map((step, index) => <Reveal as="li" key={step.title} delay={index * 0.08} className="group relative overflow-hidden rounded-3xl border border-white/[0.08] bg-white/[0.03] p-6 transition-colors hover:border-mint-300/30">
+          <div className="flex items-center gap-3">
+            <span className="font-score text-5xl font-bold text-white/10 transition-colors group-hover:text-mint-300/40">{index + 1}</span>
+            <motion.span whileHover={{ rotate: [0, -12, 12, 0], scale: 1.15 }} className="text-3xl" aria-hidden="true">{step.emoji}</motion.span>
           </div>
-        </nav>
-      </header>
+          <h3 className="mt-3 font-display text-xl font-bold text-white">{step.title}</h3>
+          <p className="mt-2 text-slate-400">{step.body}</p>
+        </Reveal>)}
+      </ol>
+    </section>
 
-      <main className="mx-auto max-w-6xl space-y-8 px-5 py-8 sm:py-12">
-        <section className="relative overflow-hidden rounded-3xl border border-teal-300/20 bg-gradient-to-br from-teal-900/70 via-[#133039] to-[#17232d] p-7 sm:p-10">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full border-[32px] border-teal-200/5"
+    {/* Games */}
+    <section id="games" aria-labelledby="games-heading" className="mt-16 scroll-mt-24 sm:mt-24">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="gp-eyebrow">Upcoming home games</p>
+          <h2 id="games-heading" className="mt-2 font-display text-3xl font-extrabold text-white sm:text-4xl">Find your next game</h2>
+          <p className="mt-1 text-sm text-slate-400">All times in Philadelphia time</p>
+        </div>
+        <div className="relative w-full sm:max-w-xs">
+          <label htmlFor="game-search" className="sr-only">Search games or venues</label>
+          <Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" />
+          <input
+            id="game-search"
+            type="search"
+            placeholder="Search opponent or venue"
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            className="gp-input pl-11 pr-10"
           />
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-teal-200">
-            Your city. Your crew. Your game.
-          </p>
-          <h1 className="mt-4 max-w-xl text-4xl font-bold tracking-tight sm:text-5xl">
-            Great game.
-            <br />
-            Even better day.
-          </h1>
-          <p className="mt-4 max-w-lg leading-relaxed text-slate-300">
-            Pick your game, set your vibe, and start planning your Philly outing.
-          </p>
-          <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-amber-200/10 px-4 py-2 text-sm text-amber-200">
-            <MapPin size={16} aria-hidden="true" />
-            Philadelphia, PA
-          </div>
-        </section>
+          <AnimatePresence>
+            {query && <motion.button
+              type="button"
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              onClick={() => setQuery("")}
+              aria-label="Clear search"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
+            ><X size={16} aria-hidden="true" /></motion.button>}
+          </AnimatePresence>
+        </div>
+      </div>
 
-        <section aria-labelledby="games-heading">
-          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-            <div>
-              <h2 id="games-heading" className="text-2xl font-bold">
-                Find your next game
-              </h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Available listings · All times in Philadelphia time
-              </p>
-            </div>
+      <div className="mt-6">
+        <FilterChips<TeamFilter>
+          label="Filter by team"
+          value={team}
+          onChange={setTeam}
+          options={[
+            { value: "all", label: <>🏟️ All teams{!loading && <span className="opacity-70">· {games.length}</span>}</> },
+            ...TEAM_ORDER.map(key => ({
+              value: key as TeamFilter,
+              label: <>{TEAMS[key].emoji} {TEAMS[key].name}{!loading && <span className="opacity-70">· {counts[key]}</span>}</>,
+              accent: TEAMS[key].gradient,
+            })),
+          ]}
+        />
+      </div>
 
-            <div className="relative w-full sm:max-w-xs">
-              <label htmlFor="game-search" className="sr-only">
-                Search games or venues
-              </label>
-              <Search
-                size={18}
-                aria-hidden="true"
-                className="absolute left-3 top-3.5 text-slate-400"
-              />
-              <input
-                id="game-search"
-                type="search"
-                placeholder="Search games or venues"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className={`${inputClass} mt-0 pl-10`}
-              />
-            </div>
-          </div>
+      <div className="mt-6">
+        {loading ? <SkeletonCards count={6} label="Loading games…" /> : error ? <ErrorState
+          title="We couldn’t load the games"
+          message={error}
+          onRetry={() => setAttempt(value => value + 1)}
+          extra={status !== "signed-in" && <ButtonLink href="/auth/login" variant="ghost" size="sm">Sign in</ButtonLink>}
+        /> : visibleGames.length === 0 ? <EmptyState
+          emoji={team === "all" ? "🔎" : TEAMS[team].emoji}
+          title={games.length === 0 ? "No home games listed right now" : "No games match that"}
+          body={games.length === 0 ? "Check back soon. New games appear as soon as tickets go on sale." : "Try another team or clear your search."}
+          action={games.length > 0 && <Button variant="secondary" onClick={() => { setQuery(""); setTeam("all"); }}>Show all games</Button>}
+        /> : <motion.ul
+          key={`${team}-${query}`}
+          variants={staggerParent}
+          initial="hidden"
+          animate="shown"
+          className="grid gap-5 md:grid-cols-2 lg:grid-cols-3"
+        >
+          {visibleGames.map(game => <GameCard key={game.id} game={game} onPlan={openPlan} />)}
+        </motion.ul>}
+      </div>
+    </section>
 
-          <div
-            aria-label="Filter by team"
-            className="my-5 flex flex-wrap gap-2"
-          >
-            {teams.map((name) => (
-              <button
-                key={name}
-                type="button"
-                aria-pressed={team === name}
-                onClick={() => setTeam(name)}
-                className={`rounded-full px-4 py-2 text-sm font-medium transition focus-visible:outline focus-visible:outline-teal-300 ${
-                  team === name
-                    ? "bg-teal-300 text-slate-950"
-                    : "bg-white/5 text-slate-300 hover:bg-white/10"
-                }`}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-
-          {loading ? (
-            <div role="status">
-              <span className="sr-only">Loading games…</span>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {[1, 2, 3].map((item) => (
-                  <div
-                    key={item}
-                    aria-hidden="true"
-                    className="h-64 rounded-2xl border border-white/10 bg-white/5 motion-safe:animate-pulse"
-                  />
-                ))}
-              </div>
-            </div>
-          ) : error ? (
-            <div
-              role="alert"
-              className="rounded-2xl border border-amber-300/30 bg-amber-300/5 p-6"
-            >
-              <p className="font-semibold">{error}</p>
-              <div className="mt-4 flex flex-wrap items-center gap-4">
-                <button
-                  className={buttonClass}
-                  onClick={() => setAttempt((value) => value + 1)}
-                >
-                  Try again
-                </button>
-                <Link href="/auth/login" className="underline">
-                  Sign in
-                </Link>
-              </div>
-            </div>
-          ) : visibleGames.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-white/20 p-8 text-center">
-              <h3 className="text-lg font-semibold">No matching games found</h3>
-              <p className="mt-2 text-slate-400">
-                Try another team or clear your search. Listings may be limited.
-              </p>
-              <button
-                className={`${buttonClass} mt-5`}
-                onClick={() => {
-                  setQuery("");
-                  setTeam("All teams");
-                }}
-              >
-                Reset filters
-              </button>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {visibleGames.map((game) => (
-                <article
-                  key={game.id}
-                  className={`flex flex-col rounded-2xl border bg-[#11252c] p-6 transition duration-200 motion-safe:hover:-translate-y-1 hover:shadow-lg hover:shadow-teal-950/40 ${
-                    selected?.id === game.id
-                      ? "border-teal-300"
-                      : "border-white/10 hover:border-teal-300/40"
-                  }`}
-                >
-                  <span className="w-fit rounded-full bg-teal-300/10 px-3 py-1 text-xs font-bold text-teal-200">
-                    {game.team}
-                  </span>
-                  <h3 className="mb-5 mt-4 text-xl font-semibold">
-                    {game.name}
-                  </h3>
-                  <p className="flex items-start gap-2 text-sm text-slate-300">
-                    <CalendarDays size={17} className="shrink-0" aria-hidden="true" />
-                    {formatTime(game.startTime)}
-                  </p>
-                  <p className="mb-6 mt-3 flex items-start gap-2 text-sm text-slate-300">
-                    <MapPin size={17} className="shrink-0" aria-hidden="true" />
-                    {game.venue}
-                  </p>
-                  <button
-                    disabled={planning}
-                    className={`${buttonClass} mt-auto w-full disabled:opacity-60`}
-                    onClick={() => {
-                      setSelected(game);
-                      setArriveBy(
-                        game.startTime
-                          ? phillyClockTime(
-                              new Date(Date.parse(game.startTime) - 45 * 60_000).toISOString(),
-                            )
-                          : "",
-                      );
-                      setShowSummary(false);
-                      setPlanResult(null);
-                      setPlanError("");
-                    }}
-                  >
-                    {selected?.id === game.id ? "Selected game" : "Plan this game"}
-                    <ArrowRight size={17} aria-hidden="true" />
-                  </button>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {selected && (
-          <section className="rounded-3xl border border-white/10 bg-[#10232a] p-6 sm:p-8">
-            <p className="text-sm font-semibold text-teal-200">
-              Your selected game
-            </p>
-            <h2
-              ref={formHeading}
-              tabIndex={-1}
-              className="mt-2 text-2xl font-bold"
-            >
-              Make the day yours
-            </h2>
-            <p className="mt-2 text-slate-300">{selected.name}</p>
-
-            <form
-              className="mt-6 grid gap-5 sm:grid-cols-2"
-              onChange={() => {
-                setShowSummary(false);
-                setPlanResult(null);
-                setPlanError("");
-              }}
-              onSubmit={async (event) => {
-                event.preventDefault();
-                if (!origin.trim() || !arrivalTime || arrivalError) return;
-                setPlanning(true);
-                setPlanError("");
-                setPlanResult(null);
-                setShowSummary(false);
-
-                try {
-                  const response = await fetch("/api/plan", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      gameId: selected.id,
-                      origin: origin.trim(),
-                      travelMode: transport === "Transit" ? "TRANSIT" : "DRIVE",
-                      targetArrivalTime: arrivalTime,
-                    }),
-                  });
-                  const data = await response.json();
-
-                  if (!response.ok) {
-                    throw new Error(data.error || "We couldn’t calculate your route.");
-                  }
-                  if (data.status === "unavailable") {
-                    setPlanError(data.message || "No route is available for that arrival time.");
-                    return;
-                  }
-                  if (data.status !== "ok") {
-                    throw new Error("The route response was unexpected. Please try again.");
-                  }
-
-                  setRouteCalculatedAt(new Date().toISOString());
-                  setPlanResult(data as PlanResult);
-                  setShowSummary(true);
-                } catch (caught) {
-                  setPlanError(
-                    caught instanceof Error
-                      ? caught.message
-                      : "We couldn’t calculate your route. Please try again.",
-                  );
-                } finally {
-                  setPlanning(false);
-                }
-              }}
-            >
-              <label className="text-sm font-medium sm:col-span-2">
-                Where are you starting?
-                <input
-                  required
-                  disabled={planning}
-                  maxLength={200}
-                  value={origin}
-                  onChange={(event) => setOrigin(event.target.value)}
-                  placeholder="Street address, neighborhood, or town"
-                  className={inputClass}
-                />
-              </label>
-
-              <label className="text-sm font-medium">
-                How are you getting there?
-                <select
-                  disabled={planning}
-                  value={transport}
-                  onChange={(event) => setTransport(event.target.value)}
-                  className={inputClass}
-                >
-                  <option>Transit</option>
-                  <option>Driving</option>
-                </select>
-              </label>
-
-              <label className="text-sm font-medium">
-                Food budget
-                <select
-                  disabled={planning}
-                  value={budget}
-                  onChange={(event) => setBudget(event.target.value)}
-                  className={inputClass}
-                >
-                  <option>$ — Budget-friendly</option>
-                  <option>$$ — Mid-range</option>
-                  <option>$$$ — Treat ourselves</option>
-                </select>
-              </label>
-
-              <label className="text-sm font-medium">
-                Before the game
-                <select
-                  disabled={planning}
-                  value={pregame}
-                  onChange={(event) => setPregame(event.target.value)}
-                  className={inputClass}
-                >
-                  <option>Food</option>
-                  <option>Bar / hangout</option>
-                  <option>Straight to the stadium</option>
-                </select>
-              </label>
-
-              <label className="text-sm font-medium">
-                Arrive at the stadium by
-                <input
-                  type="time"
-                  required
-                  step={300}
-                  disabled={planning || !selected.startTime}
-                  max={kickoffClock || undefined}
-                  value={arriveBy}
-                  onChange={(event) => setArriveBy(event.target.value)}
-                  aria-invalid={Boolean(arrivalError)}
-                  aria-describedby="arrive-by-hint"
-                  className={`${inputClass} [color-scheme:dark]`}
-                />
-                <span
-                  id="arrive-by-hint"
-                  className={`mt-2 block text-xs ${arrivalError ? "text-amber-200" : "text-slate-400"}`}
-                >
-                  {arrivalError ||
-                    `Philadelphia time · Kickoff ${formatTime(selected.startTime)}`}
-                </span>
-              </label>
-
-              <div className="sm:col-span-2">
-                <button type="submit" disabled={planning || Boolean(arrivalError)} className={`${buttonClass} disabled:opacity-70 ${planning ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"}`}>
-                  {planning ? "Calculating route…" : "View my trip"}
-                  <ArrowRight size={18} aria-hidden="true" />
-                </button>
-                <p className="mt-3 text-xs text-slate-400">
-                  Your plan isn’t saved yet.
-                </p>
-              </div>
-            </form>
-
-            {planError && (
-              <p role="alert" className="mt-5 rounded-xl border border-amber-300/30 bg-amber-300/5 p-4 text-sm text-amber-100">
-                {planError}
-              </p>
-            )}
-          </section>
-        )}
-
-        {showSummary && selected && (
-          <section
-            aria-labelledby="summary-heading"
-            className="rounded-3xl border border-teal-300/30 bg-gradient-to-br from-teal-950 to-[#10232a] p-6 sm:p-8"
-          >
-            <CheckCircle2 className="text-teal-300" aria-hidden="true" />
-            <h2
-              id="summary-heading"
-              ref={summaryHeading}
-              tabIndex={-1}
-              className="mt-3 text-2xl font-bold"
-            >
-              Your route is ready
-            </h2>
-
-            <dl className="mt-6 grid gap-5 sm:grid-cols-2">
-              {[
-                ["Game", selected.name],
-                ["Starting from", origin.trim()],
-                ["Transportation", transport],
-                ["Leave by", formatTime(planResult?.leaveByTime ?? null)],
-                [
-                  planResult?.scheduledDepartureTime
-                    ? "Scheduled transit departure"
-                    : "Estimated drive departure",
-                  formatTime(planResult?.departureTime ?? null),
-                ],
-                ["Stadium arrival", formatTime(planResult?.arrivalTime ?? arrivalTime)],
-                ["Route duration", `${planResult?.durationMinutes ?? ""} minutes`],
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <dt className="text-sm text-slate-400">{label}</dt>
-                  <dd className="mt-1 font-medium">{value}</dd>
-                </div>
-              ))}
-            </dl>
-
-            {planResult?.steps.length ? (
-              <div className="mt-6 rounded-xl bg-white/5 p-4 text-sm text-slate-200">
-                <h3 className="font-semibold text-white">Your route</h3>
-                <ol className="mt-3 space-y-2">
-                  {planResult.steps.map((step, index) => (
-                    <li key={`${step}-${index}`} className="flex gap-3">
-                      <span className="text-teal-200">{index + 1}.</span>
-                      <span>{step}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            ) : null}
-
-            {planResult?.warnings.length ? (
-              <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/5 p-4 text-sm text-amber-100">
-                {planResult.warnings.join(" ")}
-              </div>
-            ) : null}
-
-            <p className="mt-6 text-xs text-slate-400">
-              {planResult?.durationKind === "estimated"
-                ? "Driving times are estimates and can change with traffic."
-                : "Transit departure times come from the selected scheduled service."}{" "}
-              Powered by Google, ©2026 Google
-            </p>
-          </section>
-        )}
-        {showSummary &&
-          selected &&
-          planResult &&
-          arrivalTime &&
-          routeCalculatedAt && (
-            <section className="rounded-3xl border border-white/10 bg-[#10232a] p-6">
-              <SavePlanButton
-                key={`${selected.id}-${routeCalculatedAt}`}
-                input={{
-                  gameId: selected.id,
-                  origin: origin.trim(),
-                  travelMode: transport === "Transit" ? "TRANSIT" : "DRIVE",
-                  targetArrivalTime: arrivalTime,
-                  preferences: { budget, pregame },
-                  itinerary: {},
-                  routeSnapshot: planResult,
-                  routeCalculatedAt,
-                }}
-              />
-
-              <a
-                href={directionsUrl(
-                  origin.trim(),
-                  `${selected.venue}, Philadelphia, PA`,
-                  transport === "Transit" ? "TRANSIT" : "DRIVE",
-                )}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-5 inline-block text-teal-200 underline"
-              >
-                Open directions ↗
-              </a>
-            </section>
-          )}
-        <footer className="border-t border-white/10 py-6 text-sm text-slate-400">
-          Philly GamePlan · Made for the whole game day.
-        </footer>
-      </main>
-    </div>
-  );
+    <PlanSheet key={sheetGame?.id ?? "none"} game={sheetGame} open={sheetOpen} onClose={() => setSheetOpen(false)} />
+  </AppShell>;
 }

@@ -118,3 +118,29 @@ Needs **Places API (New)** enabled for `GOOGLE_MAPS_SERVER_API_KEY`. Types are i
 - Ticketmaster or Google down/slow (10–12 s timeout): endpoints answer `{ error: "readable message" }`
   with `502` (provider failed) or `503` (not configured), never a hang or an HTML error page.
   `/api/games` → "Game listings are temporarily unavailable. Please try again in a few minutes."
+
+## Crew starting points, roles, and suggestions (migration `20260927000000_crew_starts_roles_suggestions.sql`)
+
+Roles are a tier list:
+
+| Role | Can do |
+| --- | --- |
+| `leader` | Edit stops directly, approve/decline suggestions, change roles, remove people, invite, delete the plan |
+| `co_leader` | Invite friends, suggest stops, leave |
+| `member` | Suggest stops, leave |
+
+Each member now has their own starting point on `plan_members` (`origin`, `origin_lat/lng`,
+`travel_mode`, `route_snapshot`). Addresses are mapped with Places API (New) Text Search and are
+visible only to members of the plan. Existing plans copy the creator's address into their row.
+
+| Endpoint | Who | Body → Response |
+| --- | --- | --- |
+| `PUT /api/plans/[id]/start` | any member (own start) | `{ origin, travelMode, route?, routeCalculatedAt? }` → `{ start }` (400 if the address can't be found) |
+| `PATCH /api/plans/[id]/members/[userId]` | leader | `{ role: "co_leader" \| "member" }` |
+| `DELETE /api/plans/[id]/members/[userId]` | leader | removes them (their live location/alerts cascade) |
+| `POST /api/plans/[id]/stop-suggestions` | any member | `{ placeId, slot, time }` → 201 `{ suggestion }` |
+| `PATCH /api/plans/[id]/stop-suggestions/[id]` | leader | `{ decision: "approve" \| "decline" }` → `{ stops }` |
+| `DELETE /api/plans/[id]/stop-suggestions/[id]` | whoever suggested it | withdraw while pending |
+
+`PUT /api/plans/[id]/stops` is now leader-only. `GET /api/plans/[id]` adds `members[].start` and
+`suggestions` (all pending ones, plus the viewer's own recent results).

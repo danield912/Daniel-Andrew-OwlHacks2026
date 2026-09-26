@@ -1,32 +1,10 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { AuthLayout } from "@/components/auth/auth-layout";
+import { ButtonLink } from "@/components/gp/button";
 
 export default function Page() {
-  return (
-    <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-2xl">
-                Thank you for signing up!
-              </CardTitle>
-              <CardDescription>Check your email to confirm</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                You&apos;ve successfully signed up. Please check your email to
-                confirm your account before signing in.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    </div>
-  );
+  return <AuthLayout title="Check your email 📬" subtitle="One more step before game day.">
+    <p className="text-slate-300">We sent you a confirmation link. Open it on this device to finish creating your account. If you were joining a friend’s plan, the link brings you right back to it.</p>
+    <p className="mt-3 text-sm text-slate-500">No email after a minute? Check your spam folder.</p>
+    <ButtonLink href="/auth/login" variant="secondary" className="mt-6 w-full">Back to sign in</ButtonLink>
+  </AuthLayout>;
 }

@@ -1,51 +1,20 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Suspense } from "react";
+import { AuthLayout } from "@/components/auth/auth-layout";
+import { ButtonLink } from "@/components/gp/button";
 
-async function ErrorContent({
-  searchParams,
-}: {
-  searchParams: Promise<{ error: string }>;
-}) {
+async function ErrorContent({ searchParams }: { searchParams: Promise<{ error: string }> }) {
   const params = await searchParams;
-
-  return (
-    <>
-      {params?.error ? (
-        <p className="text-sm text-muted-foreground">
-          Code error: {params.error}
-        </p>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          An unspecified error occurred.
-        </p>
-      )}
-    </>
-  );
+  return <p className="rounded-2xl border border-amber-300/25 bg-amber-300/[0.07] p-4 text-sm text-amber-100">
+    {params?.error ? `Details: ${params.error}` : "An unspecified error occurred."}
+  </p>;
 }
 
-export default function Page({
-  searchParams,
-}: {
-  searchParams: Promise<{ error: string }>;
-}) {
-  return (
-    <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-2xl">
-                Sorry, something went wrong.
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Suspense>
-                <ErrorContent searchParams={searchParams} />
-              </Suspense>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+export default function Page({ searchParams }: { searchParams: Promise<{ error: string }> }) {
+  return <AuthLayout title="That link didn’t work" subtitle="It may have expired or already been used.">
+    <Suspense><ErrorContent searchParams={searchParams} /></Suspense>
+    <div className="mt-6 flex flex-wrap gap-3">
+      <ButtonLink href="/auth/login">Sign in</ButtonLink>
+      <ButtonLink href="/auth/forgot-password" variant="secondary">Reset password</ButtonLink>
     </div>
-  );
+  </AuthLayout>;
 }

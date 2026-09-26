@@ -1,16 +1,21 @@
 "use client";
 import { useRef, useState } from "react";
-import { Check, Copy, UserPlus } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { Check, Copy, Share2, UserPlus } from "lucide-react";
 import { plansRequest, planTime } from "@/lib/saved-plans";
-import { actionClass, panelClass } from "./shared";
+import { Button } from "@/components/gp/button";
+import { InlineAlert } from "@/components/gp/states";
+import { useToast } from "@/components/gp/toast";
 
 export function InvitePanel({ planId }: { planId: string }) {
+  const toast = useToast();
   const [creating, setCreating] = useState(false);
   const [link, setLink] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const linkInput = useRef<HTMLInputElement>(null);
+  const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
 
   async function createInvite() {
     setCreating(true);
@@ -20,9 +25,7 @@ export function InvitePanel({ planId }: { planId: string }) {
         method: "POST",
         signal: AbortSignal.timeout(15000),
       });
-      if (typeof data.invite?.token !== "string") {
-        throw new Error("The server did not return an invite link. Please try again.");
-      }
+      if (typeof data.invite?.token !== "string") throw new Error("The server did not return an invite link. Please try again.");
       setLink(`${window.location.origin}/invite/${encodeURIComponent(data.invite.token)}`);
       setExpiresAt(typeof data.invite.expiresAt === "string" ? data.invite.expiresAt : "");
       setCopied(false);
@@ -39,41 +42,46 @@ export function InvitePanel({ planId }: { planId: string }) {
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
+      toast.success("Link copied ✓");
       setTimeout(() => setCopied(false), 2500);
     } catch {
-      // Clipboard can be blocked; select the text so the user can copy it manually.
       linkInput.current?.select();
-      setError("Couldn’t copy automatically. The link is selected — press Command + C.");
+      toast.info("Link selected. Press ⌘C to copy.");
     }
   }
 
-  return <section aria-labelledby="invite-heading" className={panelClass}>
-    <h2 id="invite-heading" className="text-2xl font-bold">Invite friends</h2>
-    <p className="mt-2 text-sm text-slate-400">Anyone with the link can join this plan after signing in.</p>
+  async function share() {
+    try {
+      await navigator.share({ title: "Join my Philly GamePlan", text: "Join my game-day plan 🏟️", url: link });
+    } catch { /* user closed the share sheet */ }
+  }
 
-    {link ? <div className="mt-5 space-y-3">
-      <label htmlFor="invite-link" className="text-sm font-medium">Invite link</label>
-      <div className="flex flex-col gap-3 sm:flex-row">
+  return <section aria-labelledby="invite-heading" className="relative overflow-hidden rounded-3xl border border-mint-300/20 bg-gradient-to-br from-mint-300/[0.12] via-night-800/80 to-indigo-500/[0.12] p-5 shadow-lift sm:p-6">
+    <motion.span aria-hidden="true" animate={{ rotate: [0, 12, -8, 0], y: [0, -4, 0] }} transition={{ duration: 5, repeat: Infinity }} className="absolute -right-2 -top-3 text-6xl opacity-30">🎟️</motion.span>
+    <h2 id="invite-heading" className="font-display text-xl font-bold text-white">Bring your crew</h2>
+    <p className="mt-1 text-sm text-slate-300">Anyone with the link can join after signing in.</p>
+
+    <AnimatePresence mode="wait" initial={false}>
+      {link ? <motion.div key="link" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-4 space-y-3">
+        <label htmlFor="invite-link" className="sr-only">Invite link</label>
         <input
           id="invite-link"
           ref={linkInput}
           readOnly
           value={link}
-          onFocus={(event) => event.target.select()}
-          className="w-full min-w-0 rounded-xl border border-white/15 bg-[#14272d] px-4 py-3 text-sm text-white"
+          onFocus={event => event.target.select()}
+          className="gp-input font-mono text-xs"
         />
-        <button type="button" onClick={copyLink} className={actionClass}>
-          {copied ? <Check size={18} aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />}
-          {copied ? "Copied!" : "Copy link"}
-        </button>
-      </div>
-      <p role="status" className="text-xs text-slate-400">
-        {copied ? "Link copied. Send it to your crew." : expiresAt ? `Link expires ${planTime(expiresAt)}.` : ""}
-      </p>
-    </div> : <button type="button" disabled={creating} onClick={createInvite} className={`${actionClass} mt-5`}>
-      <UserPlus size={18} aria-hidden="true" />{creating ? "Creating link…" : "Invite friends"}
-    </button>}
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={copyLink} size="sm" icon={copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}>{copied ? "Copied!" : "Copy link"}</Button>
+          {canShare && <Button onClick={share} size="sm" variant="secondary" icon={<Share2 size={16} aria-hidden="true" />}>Share</Button>}
+        </div>
+        {expiresAt && <p className="text-xs text-slate-400">Link expires {planTime(expiresAt)}.</p>}
+      </motion.div> : <motion.div key="create" exit={{ opacity: 0 }} className="mt-4">
+        <Button loading={creating} loadingText="Creating link…" onClick={createInvite} icon={<UserPlus size={18} aria-hidden="true" />}>Invite friends</Button>
+      </motion.div>}
+    </AnimatePresence>
 
-    {error && <p role="alert" className="mt-4 rounded-xl bg-amber-200/10 p-4 text-sm text-amber-100">{error}</p>}
+    {error && <InlineAlert tone="error" className="mt-4">{error}</InlineAlert>}
   </section>;
 }

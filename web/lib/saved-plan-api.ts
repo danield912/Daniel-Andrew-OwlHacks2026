@@ -86,7 +86,7 @@ function toStringArray(value: unknown, label: string, maxItems: number) {
   return value.map((item) => item.trim());
 }
 
-function parseRouteSnapshot(value: unknown) {
+export function parseRouteSnapshot(value: unknown) {
   const snapshot = asRecord(value, "routeSnapshot");
   const departureTime = toIsoTimestamp(snapshot.departureTime, "routeSnapshot.departureTime");
   const arrivalTime = toIsoTimestamp(snapshot.arrivalTime, "routeSnapshot.arrivalTime");

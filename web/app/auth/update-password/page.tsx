@@ -1,11 +1,8 @@
+import { AuthLayout } from "@/components/auth/auth-layout";
 import { UpdatePasswordForm } from "@/components/update-password-form";
 
 export default function Page() {
-  return (
-    <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
-      <div className="w-full max-w-sm">
-        <UpdatePasswordForm />
-      </div>
-    </div>
-  );
+  return <AuthLayout title="Choose a new password" subtitle="You’ll use it next time you sign in.">
+    <UpdatePasswordForm />
+  </AuthLayout>;
 }

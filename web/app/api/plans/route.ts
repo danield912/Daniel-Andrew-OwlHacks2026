@@ -5,6 +5,7 @@ import {
   type SavedPlanRow,
 } from "@/lib/saved-plan-api";
 import { createClient } from "@/lib/supabase/server";
+import { geocodeAddress } from "@/lib/places";
 import { teamAndSport } from "@/lib/teams";
 
 const TICKETMASTER_EVENT_URL =
@@ -169,6 +170,27 @@ export async function POST(request: NextRequest) {
   const result = Array.isArray(data) ? data[0] : data;
   if (error || !result?.id) {
     return jsonError("We couldn’t save your plan. Please try again.", 500);
+  }
+
+  // The creator's own starting point, pinned on the map for the crew. Best
+  // effort: the plan is saved either way, and they can update it later.
+  if (result.created) {
+    let location: { lat: number; lng: number } | null = null;
+    try {
+      location = (await geocodeAddress(input.origin))?.location ?? null;
+    } catch {
+      location = null;
+    }
+    const { error: startError } = await supabase.rpc("set_my_start", {
+      p_plan_id: result.id,
+      p_origin: input.origin,
+      p_lat: location?.lat ?? null,
+      p_lng: location?.lng ?? null,
+      p_travel_mode: input.travelMode,
+      p_route: input.routeSnapshot,
+      p_route_calculated_at: input.routeCalculatedAt,
+    });
+    if (startError) console.error("set_my_start after create failed:", startError.message);
   }
 
   return NextResponse.json(

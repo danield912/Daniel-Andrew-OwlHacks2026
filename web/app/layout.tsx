@@ -1,6 +1,6 @@
-import type { Metadata } from "next";
-import { Geist } from "next/font/google";
-import { ThemeProvider } from "next-themes";
+import type { Metadata, Viewport } from "next";
+import { Barlow_Condensed, Bricolage_Grotesque, Geist } from "next/font/google";
+import { Providers } from "@/components/gp/providers";
 import "./globals.css";
 
 const defaultUrl = process.env.VERCEL_URL
@@ -13,28 +13,20 @@ export const metadata: Metadata = {
   description: "Plan your Philly sports outing, from pregame to the final whistle.",
 };
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  display: "swap",
-  subsets: ["latin"],
-});
+export const viewport: Viewport = {
+  themeColor: "#07121a",
+  viewportFit: "cover",
+};
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+const body = Geist({ variable: "--font-body", display: "swap", subsets: ["latin"] });
+const display = Bricolage_Grotesque({ variable: "--font-display", display: "swap", subsets: ["latin"], weight: ["600", "700", "800"] });
+const score = Barlow_Condensed({ variable: "--font-score", display: "swap", subsets: ["latin"], weight: ["500", "600", "700"] });
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.className} antialiased`}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          {children}
-        </ThemeProvider>
+    <html lang="en" className={`dark ${body.variable} ${display.variable} ${score.variable}`}>
+      <body className="font-sans">
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

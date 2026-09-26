@@ -1,14 +1,17 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Check, MapPin, Plus, Star, Trash2 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { Check, ExternalLink, Footprints, Lightbulb, MapPin, Plus, Send, Star, Trash2, X } from "lucide-react";
 import {
-  canInvite,
+  canEditStops,
+  myMember,
   planTime,
   type Place,
   type PlanStop,
   type SavedPlan,
   type StopInput,
   type StopSlot,
+  type StopSuggestion,
 } from "@/lib/saved-plans";
 import { phillyClockTime, phillyTimeOnGameDay } from "@/lib/philly-time";
 import {
@@ -16,22 +19,20 @@ import {
   budgetLevel,
   defaultStopTime,
   groupLabels,
-  pregameWindow,
+  placeEmoji,
   placeGroup,
+  pregameWindow,
   priceLabel,
   skipsPregame,
-  slotLabels,
   stopTimeError,
   walkLabel,
   type PlaceGroup,
 } from "@/lib/game-day";
-import { actionClass, panelClass } from "./shared";
-
-const chipClass = (active: boolean) =>
-  `rounded-full px-4 py-2 text-sm font-medium transition focus-visible:outline focus-visible:outline-teal-300 ${
-    active ? "bg-teal-300 text-slate-950" : "bg-white/5 text-slate-300 hover:bg-white/10"
-  }`;
-const smallButtonClass = "inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-teal-300 disabled:opacity-60";
+import { Button } from "@/components/gp/button";
+import { FilterChips, SegmentedTabs } from "@/components/gp/tabs";
+import { EmptyState, ErrorState, InlineAlert, Skeleton } from "@/components/gp/states";
+import { staggerChild, staggerParent } from "@/components/gp/reveal";
+import { useToast } from "@/components/gp/toast";
 
 async function stopsRequest(path: string, init: RequestInit, fallback: string) {
   const response = await fetch(path, { cache: "no-store", ...init });
@@ -55,12 +56,25 @@ function stopTimeToIso(plan: SavedPlan, slot: StopSlot, clock: string) {
   return iso;
 }
 
-export function GameDayStops({ plan, onStopsChange }: {
+function Stars({ rating }: { rating: number }) {
+  return <span className="flex items-center gap-1" aria-label={`Rated ${rating.toFixed(1)} out of 5`}>
+    <Star size={14} aria-hidden="true" className="fill-amber-300 text-amber-300" />
+    <span className="font-semibold text-white">{rating.toFixed(1)}</span>
+  </span>;
+}
+
+export function GameDayStops({ plan, onStopsChange, onSuggestionsChange }: {
   plan: SavedPlan;
   onStopsChange: (stops: PlanStop[]) => void;
+  onSuggestionsChange: (suggestions: StopSuggestion[]) => void;
 }) {
+  const toast = useToast();
   const stops = plan.stops ?? [];
-  const canEdit = canInvite(plan.role);
+  // Leader edits the plan directly; co-leaders and members suggest.
+  const canEdit = canEditStops(plan.role);
+  const me = myMember(plan);
+  const suggestions = plan.suggestions ?? [];
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
   const budget = budgetLevel(plan.preferences.budget);
 
   const [slot, setSlot] = useState<StopSlot>(skipsPregame(plan.preferences.pregame) ? "after" : "before");
@@ -108,8 +122,9 @@ export function GameDayStops({ plan, onStopsChange }: {
   };
   const shown = group === "all" ? places : places.filter(place => placeGroup(place) === group);
   const slotStops = stops.filter(stop => stop.slot === slot);
+  const pregame = pregameWindow(plan);
 
-  async function saveStops(next: StopInput[]) {
+  async function saveStops(next: StopInput[], success: string) {
     setSaving(true);
     setSaveError("");
     try {
@@ -122,6 +137,7 @@ export function GameDayStops({ plan, onStopsChange }: {
       if (!Array.isArray(data.stops)) throw new Error("The server didn’t confirm your stops. Please refresh.");
       onStopsChange(data.stops);
       setAdding(null);
+      toast.success(success);
     } catch (caught) {
       setSaveError(caught instanceof Error && caught.name === "TimeoutError"
         ? "Saving took too long. Refresh to check whether your change was saved."
@@ -134,146 +150,303 @@ export function GameDayStops({ plan, onStopsChange }: {
   const addingIso = adding ? stopTimeToIso(plan, slot, adding.clock) : null;
   const addingError = adding ? stopTimeError(plan, slot, addingIso) : "";
 
-  function addStop() {
+  async function sendSuggestion(place: Place) {
+    if (!adding || !addingIso || addingError) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      const data = await stopsRequest(`/api/plans/${encodeURIComponent(plan.id)}/stop-suggestions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ placeId: place.placeId, slot, time: addingIso }),
+        signal: AbortSignal.timeout(15000),
+      }, "We couldn’t send your suggestion.");
+      onSuggestionsChange([{
+        id: data.suggestion.id,
+        placeId: place.placeId,
+        slot,
+        time: addingIso,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        suggestedBy: { userId: me?.userId ?? "", name: me?.name ?? "You", isYou: true },
+        place: { name: place.name, address: place.address, location: place.location, category: place.category },
+      }, ...suggestions]);
+      setAdding(null);
+      toast.success({ title: "Suggestion sent 📨", body: "The leader will approve or decline it." });
+    } catch (caught) {
+      setSaveError(caught instanceof Error ? caught.message : "We couldn’t send your suggestion.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function review(suggestion: StopSuggestion, decision: "approve" | "decline") {
+    setReviewingId(suggestion.id);
+    setSaveError("");
+    try {
+      const data = await stopsRequest(`/api/plans/${encodeURIComponent(plan.id)}/stop-suggestions/${encodeURIComponent(suggestion.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      }, "We couldn’t update that suggestion.");
+      if (Array.isArray(data.stops)) onStopsChange(data.stops);
+      onSuggestionsChange(suggestions.filter(item => item.id !== suggestion.id));
+      toast.success(decision === "approve"
+        ? `${placeEmoji(suggestion.place?.category)} ${suggestion.place?.name ?? "Spot"} added to the plan`
+        : "Suggestion declined");
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "We couldn’t update that suggestion.");
+    } finally {
+      setReviewingId(null);
+    }
+  }
+
+  async function withdraw(suggestion: StopSuggestion) {
+    setReviewingId(suggestion.id);
+    try {
+      await stopsRequest(`/api/plans/${encodeURIComponent(plan.id)}/stop-suggestions/${encodeURIComponent(suggestion.id)}`, { method: "DELETE" }, "We couldn’t withdraw that suggestion.");
+      onSuggestionsChange(suggestions.filter(item => item.id !== suggestion.id));
+      toast.info("Suggestion withdrawn");
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "We couldn’t withdraw that suggestion.");
+    } finally {
+      setReviewingId(null);
+    }
+  }
+
+  const slotSuggestions = suggestions.filter(item => item.slot === slot && (item.status === "pending" || item.suggestedBy.isYou));
+  const pendingFor = (placeId: string) => suggestions.find(item => item.placeId === placeId && item.slot === slot && item.status === "pending");
+
+  function addStop(place: Place) {
     if (!adding || !addingIso || addingError) return;
     const current = stops.map(({ placeId, slot, time }) => ({ placeId, slot, time }));
-    saveStops([...current, { placeId: adding.placeId, slot, time: addingIso }]);
+    saveStops([...current, { placeId: adding.placeId, slot, time: addingIso }], `${placeEmoji(place.category)} ${place.name} added`);
   }
 
   function removeStop(target: PlanStop) {
     saveStops(stops
       .filter(stop => !(stop.placeId === target.placeId && stop.slot === target.slot && stop.time === target.time))
-      .map(({ placeId, slot, time }) => ({ placeId, slot, time })));
+      .map(({ placeId, slot, time }) => ({ placeId, slot, time })), "Stop removed");
   }
 
-  return <section aria-labelledby="game-day-heading" className={panelClass}>
-    <h2 id="game-day-heading" className="text-2xl font-bold">Make a day of it</h2>
-    <p className="mt-2 text-sm text-slate-400">
-      Spots near {plan.game.venue.name}. {canEdit
-        ? `Add up to ${MAX_STOPS} stops to your schedule.`
-        : "Only the plan leader and co-leaders can add stops."}
-    </p>
-
-    <div role="tablist" aria-label="When" className="mt-5 flex flex-wrap gap-2">
-      {(["before", "after"] as const).map(value => <button
-        key={value}
-        role="tab"
-        aria-selected={slot === value}
-        onClick={() => { setSlot(value); setGroup("all"); setAdding(null); setSaveError(""); }}
-        className={`rounded-xl px-5 py-3 font-semibold transition focus-visible:outline focus-visible:outline-teal-300 ${slot === value ? "bg-white/10 text-white ring-1 ring-teal-300" : "text-slate-400 hover:bg-white/5"}`}
-      >{slotLabels[value]}</button>)}
+  return <section id="stops" aria-labelledby="game-day-heading" className="gp-panel scroll-mt-24 p-5 sm:p-8">
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <p className="gp-eyebrow">Pregame · Postgame</p>
+        <h2 id="game-day-heading" className="mt-1 font-display text-2xl font-bold text-white sm:text-3xl">Make a day of it</h2>
+        <p className="mt-1 text-sm text-slate-400">
+          Spots around {plan.game.venue.name}. {canEdit ? `Add up to ${MAX_STOPS} stops, and review your crew’s suggestions.` : "Suggest spots and the leader approves them."}
+        </p>
+      </div>
+      <span className="rounded-full bg-white/[0.06] px-3 py-1.5 text-sm font-semibold text-slate-200 tabular">{stops.length}/{MAX_STOPS} stops</span>
     </div>
 
-    {slotStops.length > 0 && <div className="mt-6">
-      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Your {slot === "before" ? "pregame" : "after-game"} stops</h3>
-      <ul className="mt-3 space-y-2">
-        {slotStops.map(stop => <li key={`${stop.placeId}-${stop.time}`} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-teal-300/10 px-4 py-3">
-          <span><span className="font-semibold text-teal-200">{planTime(stop.time)}</span> · {stop.place?.name ?? "Saved spot (details unavailable)"}</span>
-          {canEdit && <button type="button" disabled={saving} onClick={() => removeStop(stop)} className={`${smallButtonClass} text-red-200 hover:bg-red-500/10`}>
-            <Trash2 size={16} aria-hidden="true" />Remove
-          </button>}
-        </li>)}
-      </ul>
-    </div>}
+    <div className="mt-6">
+      <SegmentedTabs<StopSlot>
+        label="When"
+        value={slot}
+        fill
+        onChange={value => { setSlot(value); setGroup("all"); setAdding(null); setSaveError(""); }}
+        options={[
+          { value: "before", label: "Before the game", icon: <span aria-hidden="true">🍻</span>, count: stops.filter(stop => stop.slot === "before").length },
+          { value: "after", label: "After the game", icon: <span aria-hidden="true">🌙</span>, count: stops.filter(stop => stop.slot === "after").length },
+        ]}
+      />
+    </div>
 
-    {slot === "before" && !skipped && pregameWindow(plan).minutes < 60 && <p className="mt-6 rounded-xl bg-amber-200/10 p-4 text-sm text-amber-100">
-      You arrive at {planTime(pregameWindow(plan).start)}, only {Math.max(pregameWindow(plan).minutes, 0)} minutes before kickoff.
-      For more time at the bars or tailgating, plan a new trip with an earlier “Arrive at the stadium by” time.
-    </p>}
+    <AnimatePresence initial={false}>
+      {slot === "before" && !skipped && pregame.minutes < 60 && <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mt-4">
+        <InlineAlert tone="warning">
+          You arrive at {planTime(pregame.start)}, only {Math.max(pregame.minutes, 0)} minutes before kickoff. For more time at the bars or tailgate, plan a new trip with an earlier “Arrive at the stadium by” time.
+        </InlineAlert>
+      </motion.div>}
+    </AnimatePresence>
 
-    {skipped ? <div className="mt-6 rounded-2xl border border-dashed border-white/20 p-6 text-center">
-      <p className="font-semibold">You chose to head straight to the stadium.</p>
-      <p className="mt-2 text-sm text-slate-400">No pregame stop needed. Changed your mind?</p>
-      <button type="button" onClick={() => setShowBeforeAnyway(true)} className={`${actionClass} mt-4`}>Show pregame spots anyway</button>
-    </div> : <>
+    {/* Suggestions waiting for the leader (and your own recent results) */}
+    <AnimatePresence initial={false}>
+      {slotSuggestions.length > 0 && <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+        <h3 className="mt-6 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-amber-200"><Lightbulb size={14} aria-hidden="true" />{canEdit ? "Suggestions to review" : "Suggestions"}</h3>
+        <ul className="mt-3 space-y-2">
+          <AnimatePresence initial={false}>
+            {slotSuggestions.map(item => <motion.li
+              key={item.id}
+              layout
+              initial={{ opacity: 0, x: -16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 16, height: 0 }}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] px-4 py-3"
+            >
+              <span className="flex min-w-0 items-center gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/10 text-lg" aria-hidden="true">{placeEmoji(item.place?.category)}</span>
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold text-white">{item.place?.name ?? "Suggested spot"}</span>
+                  <span className="block text-xs text-slate-300"><span className="font-score text-sm font-semibold text-amber-200">{planTime(item.time)}</span> · suggested by {item.suggestedBy.isYou ? "you" : item.suggestedBy.name}</span>
+                </span>
+              </span>
+              {item.status !== "pending" ? <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${item.status === "approved" ? "bg-mint-300/15 text-mint-200" : "bg-white/[0.06] text-slate-400"}`}>{item.status === "approved" ? "Approved ✓" : "Declined"}</span>
+                : canEdit ? <span className="flex gap-2">
+                  <Button size="sm" loading={reviewingId === item.id} loadingText="Saving…" onClick={() => review(item, "approve")} icon={<Check size={15} aria-hidden="true" />}>Approve</Button>
+                  <Button size="sm" variant="ghost" disabled={reviewingId === item.id} onClick={() => review(item, "decline")} icon={<X size={15} aria-hidden="true" />}>Decline</Button>
+                </span>
+                : item.suggestedBy.isYou ? <span className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-amber-200">Waiting for the leader</span>
+                  <Button size="sm" variant="ghost" disabled={reviewingId === item.id} onClick={() => withdraw(item)}>Withdraw</Button>
+                </span>
+                : <span className="text-xs font-semibold text-amber-200">Waiting for the leader</span>}
+            </motion.li>)}
+          </AnimatePresence>
+        </ul>
+      </motion.div>}
+    </AnimatePresence>
+
+    {/* Chosen stops for this tab */}
+    <AnimatePresence initial={false}>
+      {slotStops.length > 0 && <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+        <h3 className="mt-6 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Your {slot === "before" ? "pregame" : "after-game"} stops</h3>
+        <ul className="mt-3 space-y-2">
+          <AnimatePresence initial={false}>
+            {slotStops.map(stop => <motion.li
+              key={`${stop.placeId}-${stop.time}`}
+              layout
+              initial={{ opacity: 0, x: -16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 16, height: 0 }}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-mint-300/20 bg-mint-300/[0.07] px-4 py-3"
+            >
+              <span className="flex min-w-0 items-center gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/10 text-lg" aria-hidden="true">{placeEmoji(stop.place?.category)}</span>
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold text-white">{stop.place?.name ?? "Saved spot (details unavailable)"}</span>
+                  <span className="block font-score text-sm font-semibold text-mint-200">{planTime(stop.time)}</span>
+                </span>
+              </span>
+              {canEdit && <Button variant="ghost" size="sm" disabled={saving} onClick={() => removeStop(stop)} icon={<Trash2 size={15} aria-hidden="true" />} className="text-rose-200 hover:bg-rose-500/10 hover:text-rose-100">Remove</Button>}
+            </motion.li>)}
+          </AnimatePresence>
+        </ul>
+      </motion.div>}
+    </AnimatePresence>
+
+    {skipped ? <EmptyState
+      className="mt-6"
+      emoji="🏟️"
+      title="You’re heading straight in"
+      body="You picked “Straight to the stadium”, so there’s no pregame stop. Changed your mind?"
+      action={<Button variant="secondary" onClick={() => setShowBeforeAnyway(true)}>Show pregame spots</Button>}
+    /> : <>
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-        <div aria-label="Type of place" className="flex flex-wrap gap-2">
-          {(Object.keys(groupLabels) as PlaceGroup[]).map(value => <button
-            key={value}
-            type="button"
-            aria-pressed={group === value}
-            disabled={!loading && !error && value !== "all" && groupCounts[value] === 0}
-            onClick={() => { setGroup(value); setAdding(null); }}
-            className={`${chipClass(group === value)} disabled:cursor-not-allowed disabled:opacity-40`}
-          >{groupLabels[value]}{!loading && !error ? ` (${groupCounts[value]})` : ""}</button>)}
-        </div>
-        <p className="text-sm text-slate-400">Showing spots within your budget ({priceLabel(budget)})</p>
+        <FilterChips<PlaceGroup>
+          label="Type of place"
+          value={group}
+          onChange={value => { setGroup(value); setAdding(null); }}
+          options={(Object.keys(groupLabels) as PlaceGroup[]).map(value => ({
+            value,
+            label: <>{value === "all" ? "✨" : value === "food" ? "🍔" : "🍺"} {groupLabels[value]}{!loading && !error && <span className="opacity-70">· {groupCounts[value]}</span>}</>,
+          }))}
+        />
+        <p className="text-sm text-slate-400">Within your budget · <span className="font-semibold text-mint-200">{priceLabel(budget)}</span></p>
       </div>
 
-      {saveError && <p role="alert" className="mt-4 rounded-xl bg-amber-200/10 p-4 text-sm text-amber-100">{saveError}</p>}
+      <AnimatePresence>{saveError && <InlineAlert tone="error" className="mt-4">{saveError}</InlineAlert>}</AnimatePresence>
 
-      {loading ? <div role="status" className="mt-5">
-        <span className="sr-only">Finding spots…</span>
-        <div className="grid gap-4 md:grid-cols-2">
-          {[1, 2, 3, 4].map(item => <div key={item} aria-hidden="true" className="h-40 rounded-2xl bg-white/5 motion-safe:animate-pulse" />)}
-        </div>
-      </div> : error ? <div role="alert" className="mt-5 rounded-2xl border border-amber-300/30 bg-amber-300/5 p-6">
-        <p className="font-semibold text-amber-100">{error}</p>
-        <button type="button" onClick={() => setAttempt(n => n + 1)} className={`${actionClass} mt-4`}>Try again</button>
-      </div> : shown.length === 0 ? <div className="mt-5 rounded-2xl border border-dashed border-white/20 p-6 text-center">
-        <p className="font-semibold">No {group === "all" ? "" : `${groupLabels[group].toLowerCase()} `}spots found nearby in your budget.</p>
-        <p className="mt-2 text-sm text-slate-400">{group === "all" ? "Try the other tab, or open Google Maps to look around." : "Try All to see every spot."}</p>
-        {group !== "all" && <button type="button" onClick={() => setGroup("all")} className={`${actionClass} mt-4`}>Show all spots</button>}
-      </div> : <>
-        <ul className="mt-5 grid gap-4 md:grid-cols-2">
+      <div className="mt-5">
+        {loading ? <div role="status" className="grid gap-4 md:grid-cols-2">
+          <span className="sr-only">Finding spots…</span>
+          {[1, 2, 3, 4].map(item => <div key={item} className="gp-glass rounded-3xl p-5">
+            <div className="flex gap-3"><Skeleton className="h-12 w-12" /><div className="flex-1 space-y-2"><Skeleton className="h-5 w-3/4" /><Skeleton className="h-4 w-1/2" /></div></div>
+            <Skeleton className="mt-5 h-9 w-2/3" />
+          </div>)}
+        </div> : error ? <ErrorState title="We couldn’t find spots" message={error} onRetry={() => setAttempt(n => n + 1)} /> : shown.length === 0 ? <EmptyState
+          emoji={group === "bar" ? "🍺" : group === "food" ? "🍔" : "🗺️"}
+          title="No spots found nearby"
+          body={group === "all" ? "Try the other tab, or open Google Maps to look around." : "Try All to see every spot."}
+          action={group !== "all" && <Button variant="secondary" onClick={() => setGroup("all")}>Show all spots</Button>}
+        /> : <motion.ul key={`${slot}-${group}`} variants={staggerParent} initial="hidden" animate="shown" className="grid gap-4 md:grid-cols-2">
           {shown.map(place => {
             const added = stops.some(stop => stop.placeId === place.placeId && stop.slot === slot);
             const isAdding = adding?.placeId === place.placeId;
-            return <li key={place.placeId} className={`flex flex-col rounded-2xl border bg-[#11252c] p-5 ${added ? "border-teal-300/60" : "border-white/10"}`}>
-              <div className="flex items-start justify-between gap-3">
-                <h4 className="text-lg font-semibold">{place.name}</h4>
-                <span className="shrink-0 rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-300">{place.category}</span>
-              </div>
-              <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-300">
-                <span className="font-semibold text-teal-200">{priceLabel(place.priceLevel)}</span>
-                {place.rating !== null && <span className="flex items-center gap-1">
-                  <Star size={14} aria-hidden="true" className="fill-amber-300 text-amber-300" />
-                  {place.rating.toFixed(1)}{place.ratingCount != null && <span className="text-slate-400">({place.ratingCount.toLocaleString()})</span>}
-                </span>}
-                {place.walkMinutes !== null && <span>{walkLabel(place.walkMinutes)}</span>}
-              </p>
-              <p className="mt-2 flex items-start gap-1.5 text-sm text-slate-400"><MapPin size={14} aria-hidden="true" className="mt-0.5 shrink-0" />{place.address}</p>
-
-              {isAdding ? <div className="mt-4 rounded-xl bg-white/5 p-4">
-                <label className="text-sm font-medium">
-                  {slot === "before" ? "Be there at" : "Head there at"}
-                  <input
-                    type="time"
-                    step={300}
-                    autoFocus
-                    value={adding.clock}
-                    onChange={event => setAdding({ placeId: place.placeId, clock: event.target.value })}
-                    aria-invalid={Boolean(addingError)}
-                    aria-describedby={`time-hint-${place.placeId}`}
-                    className="mt-2 w-full rounded-xl border border-white/15 bg-[#14272d] px-4 py-3 text-white [color-scheme:dark] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300"
-                  />
-                </label>
-                <p id={`time-hint-${place.placeId}`} className={`mt-2 text-xs ${addingError ? "text-amber-200" : "text-slate-400"}`}>
-                  {addingError || `Philadelphia time · ${planTime(addingIso!)}`}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button type="button" disabled={saving || Boolean(addingError)} onClick={addStop} className={`${smallButtonClass} bg-teal-300 text-slate-950 hover:bg-teal-200`}>
-                    {saving ? "Adding…" : "Add stop"}
-                  </button>
-                  <button type="button" disabled={saving} onClick={() => setAdding(null)} className={`${smallButtonClass} text-slate-300 hover:bg-white/10`}>Cancel</button>
+            return <motion.li
+              key={place.placeId}
+              variants={staggerChild}
+              layout
+              whileHover={{ y: -4 }}
+              className={`group relative flex flex-col rounded-3xl border p-5 transition-colors ${added ? "border-mint-300/50 bg-mint-300/[0.06]" : "border-white/[0.08] bg-night-800/60 hover:border-white/20"}`}
+            >
+              <div className="flex items-start gap-3">
+                <motion.span whileHover={{ rotate: [0, -10, 10, 0] }} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white/[0.07] text-2xl" aria-hidden="true">{placeEmoji(place.category)}</motion.span>
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-semibold leading-snug text-white">{place.name}</h4>
+                  <p className="text-sm text-slate-400">{place.category}</p>
                 </div>
-              </div> : <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
-                {added ? <span className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-teal-200"><Check size={16} aria-hidden="true" />Added</span>
-                  : canEdit && <button
-                    type="button"
-                    disabled={saving || stops.length >= MAX_STOPS}
-                    title={stops.length >= MAX_STOPS ? `Plans can have up to ${MAX_STOPS} stops.` : undefined}
-                    onClick={() => { setSaveError(""); setAdding({ placeId: place.placeId, clock: phillyClockTime(defaultStopTime(plan, slot)) }); }}
-                    className={`${smallButtonClass} bg-teal-300 text-slate-950 hover:bg-teal-200`}
-                  ><Plus size={16} aria-hidden="true" />Add to plan</button>}
-                <a href={place.mapsUrl} target="_blank" rel="noopener noreferrer" className={`${smallButtonClass} text-teal-200 hover:bg-white/10`}>Directions ↗</a>
-              </div>}
-            </li>;
+                {added && <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-mint-300 text-night-950" aria-label="Added"><Check size={16} strokeWidth={3} aria-hidden="true" /></span>}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-300">
+                {place.priceLevel !== null && <span className="font-score text-base font-bold text-mint-200">{priceLabel(place.priceLevel)}</span>}
+                {place.rating !== null && <Stars rating={place.rating} />}
+                {place.ratingCount != null && <span className="text-slate-500">({place.ratingCount.toLocaleString()})</span>}
+                {place.walkMinutes !== null && <span className="flex items-center gap-1"><Footprints size={14} aria-hidden="true" />{walkLabel(place.walkMinutes)}</span>}
+              </div>
+              <p className="mt-2 flex items-start gap-1.5 text-sm text-slate-500"><MapPin size={14} className="mt-0.5 shrink-0" aria-hidden="true" />{place.address}</p>
+
+              <AnimatePresence initial={false} mode="wait">
+                {isAdding ? <motion.div
+                  key="adding"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-night-900/60 p-4">
+                    <label htmlFor={`time-${place.placeId}`} className="gp-label">{slot === "before" ? "Be there at" : "Head there at"}</label>
+                    <input
+                      id={`time-${place.placeId}`}
+                      type="time"
+                      step={300}
+                      autoFocus
+                      value={adding.clock}
+                      onChange={event => setAdding({ placeId: place.placeId, clock: event.target.value })}
+                      aria-invalid={Boolean(addingError)}
+                      aria-describedby={`time-hint-${place.placeId}`}
+                      className="gp-input"
+                    />
+                    <p id={`time-hint-${place.placeId}`} className={`mt-2 text-xs ${addingError ? "text-amber-200" : "text-slate-400"}`}>
+                      {addingError || `Philadelphia time · ${planTime(addingIso!)}`}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {canEdit
+                        ? <Button size="sm" loading={saving} loadingText="Adding…" disabled={Boolean(addingError)} onClick={() => addStop(place)} icon={<Check size={16} aria-hidden="true" />}>Add stop</Button>
+                        : <Button size="sm" loading={saving} loadingText="Sending…" disabled={Boolean(addingError)} onClick={() => sendSuggestion(place)} icon={<Send size={15} aria-hidden="true" />}>Send suggestion</Button>}
+                      <Button size="sm" variant="ghost" disabled={saving} onClick={() => setAdding(null)}>Cancel</Button>
+                    </div>
+                  </div>
+                </motion.div> : <motion.div key="actions" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-auto flex flex-wrap items-center gap-2 pt-4">
+                  {added ? <span className="px-1 text-sm font-semibold text-mint-200">In your plan ✓</span>
+                    : pendingFor(place.placeId) ? <span className="px-1 text-sm font-semibold text-amber-200">💡 Suggested · waiting for leader</span>
+                    : !canEdit ? <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={saving}
+                      onClick={() => { setSaveError(""); setAdding({ placeId: place.placeId, clock: phillyClockTime(defaultStopTime(plan, slot)) }); }}
+                      icon={<Lightbulb size={15} aria-hidden="true" />}
+                    >Suggest</Button>
+                    : <Button
+                      size="sm"
+                      disabled={saving || stops.length >= MAX_STOPS}
+                      title={stops.length >= MAX_STOPS ? `Plans can have up to ${MAX_STOPS} stops.` : undefined}
+                      onClick={() => { setSaveError(""); setAdding({ placeId: place.placeId, clock: phillyClockTime(defaultStopTime(plan, slot)) }); }}
+                      icon={<Plus size={16} aria-hidden="true" />}
+                    >Add to plan</Button>}
+                  <a href={place.mapsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-slate-300 transition hover:bg-white/[0.07] hover:text-white">
+                    Directions <ExternalLink size={14} aria-hidden="true" />
+                  </a>
+                </motion.div>}
+              </AnimatePresence>
+            </motion.li>;
           })}
-        </ul>
-        {canEdit && stops.length >= MAX_STOPS && <p className="mt-4 text-sm text-slate-400">You’ve reached {MAX_STOPS} stops. Remove one to add another.</p>}
-      </>}
-      <p className="mt-5 text-xs text-slate-400">Walk times are straight-line estimates. Place information from Google.</p>
+        </motion.ul>}
+      </div>
+      {canEdit && stops.length >= MAX_STOPS && <p className="mt-4 text-sm text-slate-400">You’ve reached {MAX_STOPS} stops. Remove one to add another.</p>}
+      <p className="mt-5 text-xs text-slate-500">Walk times are straight-line estimates. Place information from Google.</p>
     </>}
   </section>;
 }

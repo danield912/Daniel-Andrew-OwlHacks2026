@@ -1,4 +1,4 @@
-import type { Place, SavedPlan, StopSlot } from "@/lib/saved-plans";
+import { myMember, type Place, type RouteSnapshot, type SavedPlan, type StopSlot } from "@/lib/saved-plans";
 
 export const MAX_STOPS = 6;
 
@@ -35,8 +35,20 @@ export function estimatedGameEnd(plan: Pick<SavedPlan, "game">) {
   return new Date(Date.parse(plan.game.startsAt) + minutes * 60_000).toISOString();
 }
 
-export function stadiumArrival(plan: Pick<SavedPlan, "routeSnapshot" | "targetArrivalTime">) {
-  return plan.routeSnapshot?.arrivalTime ?? plan.targetArrivalTime;
+// The viewer's own trip: everyone in the crew starts from their own address.
+// Falls back to the plan's original route for the leader (older plans).
+export type Trip = { origin: string; travelMode: "TRANSIT" | "DRIVE"; route: RouteSnapshot | null };
+
+export function viewerTrip(plan: Pick<SavedPlan, "members" | "role" | "origin" | "travelMode" | "routeSnapshot">): Trip | null {
+  const me = myMember(plan);
+  if (me?.start) return { origin: me.start.origin, travelMode: me.start.travelMode, route: me.start.route };
+  if (plan.role === "leader") return { origin: plan.origin, travelMode: plan.travelMode, route: plan.routeSnapshot };
+  return null;
+}
+
+// When the viewer gets to the stadium area: their route's arrival, else the plan's arrive-by time.
+export function stadiumArrival(plan: Pick<SavedPlan, "members" | "role" | "origin" | "travelMode" | "routeSnapshot" | "targetArrivalTime">) {
+  return viewerTrip(plan)?.route?.arrivalTime ?? plan.targetArrivalTime;
 }
 
 // Pregame happens around the stadium, from your arrive-by time until kickoff.
@@ -94,4 +106,21 @@ export function stopTimeError(plan: SavedPlan, slot: StopSlot, iso: string | nul
     }
   }
   return "";
+}
+
+// Emoji for a place's type label, e.g. "Sports bar" → 🍺, "Tailgate" → 🔥.
+export function placeEmoji(category: string | undefined) {
+  const label = (category ?? "").toLowerCase();
+  if (label.includes("tailgate")) return "🔥";
+  if (/bar|pub|tavern|brew|lounge|beer|wine/.test(label)) return "🍺";
+  if (/pizza/.test(label)) return "🍕";
+  if (/cafe|coffee/.test(label)) return "☕";
+  if (/dessert|ice cream|bakery/.test(label)) return "🍩";
+  if (/sandwich|cheesesteak|deli/.test(label)) return "🥪";
+  if (/restaurant|food|grill|steak|burger|kitchen|diner|eatery/.test(label)) return "🍔";
+  if (/park/.test(label)) return "🌳";
+  if (/bowling/.test(label)) return "🎳";
+  if (/casino/.test(label)) return "🎰";
+  if (/night ?club/.test(label)) return "🪩";
+  return "📍";
 }
