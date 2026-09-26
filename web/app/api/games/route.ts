@@ -1,17 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isTeam, SUPPORTED_TEAMS, teamForEvent, type Sport, type Team } from "@/lib/teams";
 
-const SUPPORTED_TEAMS = {
-  eagles: { name: "Philadelphia Eagles", venues: ["Lincoln Financial Field"] },
-  phillies: { name: "Philadelphia Phillies", venues: ["Citizens Bank Park"] },
-  // Ticketmaster may still use the arena's former name in older records.
-  sixers: {
-    name: "Philadelphia 76ers",
-    venues: ["Wells Fargo Center", "Xfinity Mobile Arena"],
-  },
-  temple: { name: "Temple Owls Football", venues: ["Lincoln Financial Field"] },
-} as const;
-
-type Team = keyof typeof SUPPORTED_TEAMS;
+const PRIVATE_ERROR = { "Cache-Control": "no-store" };
+const TICKETMASTER_TIMEOUT_MS = 10_000;
+const TICKETMASTER_DOWN =
+  "Game listings are temporarily unavailable. Please try again in a few minutes.";
 
 type TicketmasterVenue = {
   name?: string;
@@ -35,6 +28,7 @@ type TicketmasterResponse = { _embedded?: { events?: TicketmasterEvent[] } };
 type Game = {
   id: string;
   team: Team;
+  sport: Sport;
   homeTeam: string;
   opponent: string;
   startsAt: string;
@@ -43,25 +37,8 @@ type Game = {
   imageUrl?: string;
 };
 
-function isTeam(value: string | null): value is Team {
-  return value !== null && value in SUPPORTED_TEAMS;
-}
-
 function getEventTeam(event: TicketmasterEvent): Team | undefined {
-  const eventName = event.name.toLocaleLowerCase();
-  const venueName = event._embedded?.venues?.[0]?.name?.toLocaleLowerCase();
-
-  return (Object.keys(SUPPORTED_TEAMS) as Team[]).find((team) => {
-    const config = SUPPORTED_TEAMS[team];
-    const teamNameMatches =
-      eventName.includes(config.name.toLocaleLowerCase()) ||
-      (team === "temple" && eventName.includes("temple") && eventName.includes("football"));
-    const venueMatches = config.venues.some(
-      (venue) => venueName === venue.toLocaleLowerCase()
-    );
-
-    return teamNameMatches && venueMatches;
-  });
+  return teamForEvent(event.name, event._embedded?.venues?.[0]?.name);
 }
 
 function getOpponent(eventName: string, homeTeam: string): string {
@@ -84,6 +61,7 @@ function toGame(event: TicketmasterEvent, team: Team): Game | undefined {
   return {
     id: event.id,
     team,
+    sport: SUPPORTED_TEAMS[team].sport,
     homeTeam: SUPPORTED_TEAMS[team].name,
     opponent: getOpponent(event.name, SUPPORTED_TEAMS[team].name),
     startsAt,
@@ -104,10 +82,8 @@ export async function GET(request: NextRequest) {
   const apiKey = process.env.TICKETMASTER_API_KEY;
 
   if (!apiKey) {
-    return NextResponse.json(
-      { error: "Ticketmaster API key is missing" },
-      { status: 500 }
-    );
+    console.error("TICKETMASTER_API_KEY is not set");
+    return NextResponse.json({ error: TICKETMASTER_DOWN }, { status: 503, headers: PRIVATE_ERROR });
   }
 
   const teamFilter = request.nextUrl.searchParams.get("team");
@@ -139,13 +115,12 @@ export async function GET(request: NextRequest) {
   try {
     const response = await fetch(url.toString(), {
       next: { revalidate: 300 },
+      signal: AbortSignal.timeout(TICKETMASTER_TIMEOUT_MS),
     });
 
     if (!response.ok) {
-      return NextResponse.json(
-        { error: "Ticketmaster request failed" },
-        { status: response.status }
-      );
+      console.error("Ticketmaster events failed", response.status);
+      return NextResponse.json({ error: TICKETMASTER_DOWN }, { status: 502, headers: PRIVATE_ERROR });
     }
 
     const data = (await response.json()) as TicketmasterResponse;
@@ -161,10 +136,9 @@ export async function GET(request: NextRequest) {
       .sort((first, second) => first.startsAt.localeCompare(second.startsAt));
 
     return NextResponse.json({ games });
-  } catch {
-    return NextResponse.json(
-      { error: "Unable to reach Ticketmaster" },
-      { status: 502 }
-    );
+  } catch (caught) {
+    // Network failure, timeout, or a malformed response.
+    console.error("Ticketmaster events unreachable", caught instanceof Error ? caught.message : caught);
+    return NextResponse.json({ error: TICKETMASTER_DOWN }, { status: 502, headers: PRIVATE_ERROR });
   }
 }

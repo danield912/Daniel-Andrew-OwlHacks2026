@@ -169,9 +169,10 @@ export async function POST(request: NextRequest) {
   const googleApiKey = process.env.GOOGLE_MAPS_SERVER_API_KEY;
 
   if (!ticketmasterApiKey || !googleApiKey) {
+    console.error("TICKETMASTER_API_KEY or GOOGLE_MAPS_SERVER_API_KEY is not set");
     return NextResponse.json(
-      { error: "Route planning is not configured yet." },
-      { status: 500 },
+      { error: "Route planning is temporarily unavailable. Please try again later." },
+      { status: 503 },
     );
   }
 
@@ -180,7 +181,7 @@ export async function POST(request: NextRequest) {
 
   let eventResponse: Response;
   try {
-    eventResponse = await fetch(eventUrl, { cache: "no-store" });
+    eventResponse = await fetch(eventUrl, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
   } catch {
     return NextResponse.json(
       { error: "Game details are temporarily unavailable. Please try again." },
@@ -196,7 +197,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const event = (await eventResponse.json()) as TicketmasterEvent;
+  let event: TicketmasterEvent;
+  try {
+    event = (await eventResponse.json()) as TicketmasterEvent;
+  } catch {
+    return NextResponse.json(
+      { error: "Game details are temporarily unavailable. Please try again." },
+      { status: 502 },
+    );
+  }
   const gameStart = Date.parse(event.dates?.start?.dateTime ?? "");
   const destination = getDestination(event._embedded?.venues?.[0] ?? {});
 
@@ -241,6 +250,7 @@ export async function POST(request: NextRequest) {
     routesResponse = await fetch(GOOGLE_ROUTES_URL, {
       method: "POST",
       cache: "no-store",
+      signal: AbortSignal.timeout(12_000),
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": googleApiKey,
@@ -276,7 +286,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const routesData = (await routesResponse.json()) as GoogleRoutesResponse;
+  let routesData: GoogleRoutesResponse;
+  try {
+    routesData = (await routesResponse.json()) as GoogleRoutesResponse;
+  } catch {
+    return NextResponse.json(
+      { error: "Routes are temporarily unavailable. Please try again." },
+      { status: 502 },
+    );
+  }
   const route = routesData.routes?.[0];
   const durationSeconds = parseDurationSeconds(route?.duration);
 
