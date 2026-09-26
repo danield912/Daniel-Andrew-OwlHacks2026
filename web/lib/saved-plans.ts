@@ -29,7 +29,11 @@ export type PlanMember = {
   isYou: boolean;
 };
 
-export type SavedPlan = SavePlanInput & {
+// Saved routes can be cleared later (Google's storage rules), so a saved plan's
+// route fields may be null even though saving always sends them.
+export type SavedPlan = Omit<SavePlanInput, "routeSnapshot" | "routeCalculatedAt"> & {
+  routeSnapshot: RouteSnapshot | null;
+  routeCalculatedAt: string | null;
   id: string;
   gameId: string;
   title: string;
