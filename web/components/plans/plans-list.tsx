@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CalendarDays, MapPin, ArrowUpRight } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { CalendarDays, MapPin, ArrowUpRight, CheckCircle2, X } from "lucide-react";
 import { plansRequest, planTime, roleLabels, type SavedPlan } from "@/lib/saved-plans";
 import { PlansShell, PlansLoading, PlansError, panelClass, actionClass } from "./shared";
 
@@ -11,6 +12,8 @@ export function PlansList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const router = useRouter();
+  const notice = { deleted: "Plan deleted.", left: "You left the plan." }[useSearchParams().get("notice") ?? ""];
 
   useEffect(() => {
     const controller = new AbortController();
@@ -36,6 +39,10 @@ export function PlansList() {
       <div><p className="text-sm font-semibold text-teal-200">Your next great day out</p><h1 className="mt-2 text-4xl font-bold">My Plans</h1><p className="mt-3 text-slate-400">Your games, your people, all in one place.</p></div>
       <Link href="/" className={actionClass}>Plan a game</Link>
     </div>
+    {notice && <div role="status" className="flex items-center justify-between gap-4 rounded-2xl border border-teal-300/30 bg-teal-300/10 px-5 py-4 text-teal-100">
+      <span className="flex items-center gap-2"><CheckCircle2 size={18} aria-hidden="true" />{notice}</span>
+      <button type="button" aria-label="Dismiss" onClick={() => router.replace("/plans")} className="rounded-lg p-1 hover:bg-white/10 focus-visible:outline focus-visible:outline-teal-300"><X size={18} aria-hidden="true" /></button>
+    </div>}
     <div aria-label="Plan category" className="flex flex-wrap gap-2">
       {(["created", "joined"] as const).map(value => <button key={value} aria-pressed={tab === value} onClick={() => setTab(value)} className={`rounded-full px-5 py-3 font-medium transition focus-visible:outline focus-visible:outline-teal-300 ${tab === value ? "bg-teal-300 text-slate-950" : "bg-white/5 text-slate-300 hover:bg-white/10"}`}>
         {value === "created" ? "Created by me" : "Joined"}
