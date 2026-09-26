@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { TripResults } from "@/components/trip-results";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -442,7 +443,7 @@ export function GamePlanHome() {
 
               <div className="sm:col-span-2">
                 <button type="submit" className={buttonClass}>
-                  Preview my preferences
+                  View my trip
                   <ArrowRight size={18} aria-hidden="true" />
                 </button>
                 <p className="mt-3 text-xs text-slate-400">
@@ -491,7 +492,17 @@ export function GamePlanHome() {
             </p>
           </section>
         )}
-
+        {showSummary && selected && selected.startTime && ( 
+          <TripResults 
+          key={`${selected.id}-${origin}-${transport}-${buffer}`}
+          gameId={selected.id}
+          origin={origin.trim()}
+          transport={transport}
+          buffer={Number(buffer)}
+          gameStart={selected.startTime}
+          venue={selected.venue}
+        />
+        )}
         <footer className="border-t border-white/10 py-6 text-sm text-slate-400">
           Philly GamePlan · Made for the whole game day.
         </footer>
