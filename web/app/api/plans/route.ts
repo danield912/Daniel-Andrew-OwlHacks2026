@@ -5,6 +5,7 @@ import {
   type SavedPlanRow,
 } from "@/lib/saved-plan-api";
 import { createClient } from "@/lib/supabase/server";
+import { teamAndSport } from "@/lib/teams";
 
 const TICKETMASTER_EVENT_URL =
   "https://app.ticketmaster.com/discovery/v2/events";
@@ -64,7 +65,7 @@ async function canonicalGame(gameId: string) {
 
   let response: Response;
   try {
-    response = await fetch(url, { cache: "no-store" });
+    response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
   } catch {
     throw new Error("Game details are temporarily unavailable. Please try again.");
   }
@@ -72,7 +73,12 @@ async function canonicalGame(gameId: string) {
   if (response.status === 404) throw new Error("This game is no longer available.");
   if (!response.ok) throw new Error("Game details are temporarily unavailable. Please try again.");
 
-  const event = (await response.json()) as TicketmasterEvent;
+  let event: TicketmasterEvent;
+  try {
+    event = (await response.json()) as TicketmasterEvent;
+  } catch {
+    throw new Error("Game details are temporarily unavailable. Please try again.");
+  }
   const venue = event._embedded?.venues?.[0];
   const startsAt = event.dates?.start?.dateTime;
   const name = event.name?.trim();
@@ -83,6 +89,7 @@ async function canonicalGame(gameId: string) {
 
   return {
     name,
+    ...teamAndSport(name, venue.name),
     startsAt: new Date(startsAt).toISOString(),
     venue: {
       name: venue.name.trim(),

@@ -106,3 +106,15 @@ Needs **Places API (New)** enabled for `GOOGLE_MAPS_SERVER_API_KEY`. Types are i
 - For `slot=before` at the sports complex, the first result is a **Tailgate** option with `placeId: "tailgate"`
   (no rating/price). It can be saved as a stop like any other place.
 - Show "Google Maps" attribution next to place results and link each place with `mapsUrl` (Google policy).
+
+## Teams, sports, signed-in user, and failures (Part A)
+
+- `GET /api/games`: each game now has `sport` (`football | baseball | basketball`) next to `team`
+  (`eagles | phillies | sixers | temple`).
+- Saved plans (`GET /api/plans`, `GET /api/plans/[id]`): `game` now includes the same `team` and `sport`.
+  New plans store them; older plans get them worked out from the venue and name. `null` only for an unknown venue.
+- `GET /api/me` → `{ user: { id, name } }` when signed in, `{ user: null }` when not (200 either way).
+  `name` = profile name, else the part of the email before "@".
+- Ticketmaster or Google down/slow (10–12 s timeout): endpoints answer `{ error: "readable message" }`
+  with `502` (provider failed) or `503` (not configured), never a hang or an HTML error page.
+  `/api/games` → "Game listings are temporarily unavailable. Please try again in a few minutes."

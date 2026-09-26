@@ -1,3 +1,5 @@
+import { teamAndSport } from "@/lib/teams";
+
 export type TravelMode = "TRANSIT" | "DRIVE";
 
 export type RouteSnapshot = {
@@ -180,6 +182,22 @@ export type SavedPlanRow = {
   plan_members?: Array<{ user_id: string; role: "leader" | "co_leader" | "member" }>;
 };
 
+// Adds { team, sport } to a stored game (older plans don't have them saved).
+export function withTeamAndSport(game: unknown) {
+  const g = (game && typeof game === "object" ? game : {}) as {
+    name?: string;
+    venue?: { name?: string };
+    team?: unknown;
+    sport?: unknown;
+  };
+  const derived = teamAndSport(g.name, g.venue?.name);
+  return {
+    ...g,
+    team: typeof g.team === "string" ? g.team : derived.team,
+    sport: typeof g.sport === "string" ? g.sport : derived.sport,
+  };
+}
+
 export function serializeSavedPlan(row: SavedPlanRow, userId: string) {
   const role = row.plan_members?.find((member) => member.user_id === userId)?.role;
   if (!role) throw new Error("Plan membership is missing.");
@@ -190,7 +208,7 @@ export function serializeSavedPlan(row: SavedPlanRow, userId: string) {
     role,
     createdAt: row.created_at,
     gameId: row.game_id,
-    game: row.game,
+    game: withTeamAndSport(row.game),
     origin: row.origin,
     travelMode: row.travel_mode,
     targetArrivalTime: row.target_arrival_time,
