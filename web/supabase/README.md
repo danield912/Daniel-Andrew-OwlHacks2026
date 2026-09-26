@@ -70,3 +70,15 @@ and every response is `Cache-Control: private, no-store`.
 `GET /api/plans/[id]` now also returns `members: [{ userId, name, role, isYou }]`, leader first.
 `name` is the account's profile name if set, otherwise the part of the email
 before "@". Full email addresses are never returned.
+
+## Delete and leave (migration `20260926210000_plan_delete_and_leave.sql`)
+
+| Endpoint | Success | Errors |
+| --- | --- | --- |
+| `DELETE /api/plans/[id]` | `200 { deleted: true }` | `401` signed out · `403` co-leader or member · `404` no plan or not a member |
+| `POST /api/plans/[id]/leave` | `200 { left: true }` | `401` signed out · `400 "Delete the plan instead"` leader · `404` no plan or not a member |
+
+- Deleting a plan cascades to its members and invite links, so afterwards
+  `GET /api/plans/[id]`, `GET /api/invites/[token]` and its accept all return `404`.
+- Leaving removes only the signed-in user; the plan and everyone else stay.
+  Someone who left can rejoin with a still-valid invite link.

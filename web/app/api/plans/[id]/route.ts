@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { serializeSavedPlan, type SavedPlanRow } from "@/lib/saved-plan-api";
-import type { PlanMember } from "@/lib/plan-invites-api";
+import {
+  PLAN_ERRORS,
+  type DeletePlanResponse,
+  type PlanMember,
+} from "@/lib/plan-invites-api";
 import { createClient } from "@/lib/supabase/server";
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" };
@@ -75,4 +79,26 @@ export async function GET(
     // Do not disclose whether a malformed or inaccessible plan exists.
     return jsonError("Plan not found.", 404);
   }
+}
+
+// Leader only. Deleting the plan also deletes its members and invite links
+// (database cascade), so old plan and invite links then return 404.
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const supabase = await createClient();
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) return jsonError(PLAN_ERRORS.signIn, 401);
+  if (!UUID_PATTERN.test(id)) return jsonError(PLAN_ERRORS.notFound, 404);
+
+  const { error } = await supabase.rpc("delete_plan", { p_plan_id: id });
+  if (error?.code === "28000") return jsonError(PLAN_ERRORS.signIn, 401);
+  if (error?.code === "P0002") return jsonError(PLAN_ERRORS.notFound, 404);
+  if (error?.code === "42501") return jsonError(PLAN_ERRORS.notLeaderDelete, 403);
+  if (error) return jsonError("We couldn’t delete this plan. Please try again.", 500);
+
+  const body: DeletePlanResponse = { deleted: true };
+  return NextResponse.json(body, { headers: PRIVATE_HEADERS });
 }
