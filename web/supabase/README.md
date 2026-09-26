@@ -97,7 +97,7 @@ Needs **Places API (New)** enabled for `GOOGLE_MAPS_SERVER_API_KEY`. Types are i
 - `GET /api/plans/[id]` now also returns `stops: [{ placeId, slot, time, place: { name, address, location, category } | null }]`,
   sorted by time. `place` is `null` if Google can't return details at that moment.
 - Only `placeId`, `slot` and `time` are stored (in `plans.itinerary.stops`); place details are fetched fresh on every load.
-- Rules: at most 6 stops; `before` stops must be before the stadium arrival time, `after` stops after kickoff;
+- Rules: at most 6 stops; `before` stops must be between arriving at the stadium area (`targetArrivalTime`) and kickoff, `after` stops after kickoff;
   `time` is ISO 8601 with a timezone; no duplicate place in the same slot. Only leader/co-leader can change stops.
 - Place types: before + "Food" → restaurants; before + "Bar / hangout" → bars, sports bars, pubs, bar & grills;
   otherwise (and all `after` searches) → both. Places priced above the budget are dropped; unknown prices are kept.

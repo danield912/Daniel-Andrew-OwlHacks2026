@@ -351,8 +351,12 @@ export function parseStops(
       throw new PlacesError(`${label} time must be an ISO 8601 timestamp with a timezone.`, 400);
     }
     const time = Date.parse(s.time);
-    if (s.slot === "before" && time >= arrival) {
-      throw new PlacesError(`${label} must be before your stadium arrival time.`, 400);
+    // Pregame stops happen around the stadium: after you arrive, before kickoff.
+    if (s.slot === "before" && time < arrival) {
+      throw new PlacesError(`${label} must be after you arrive at the stadium area.`, 400);
+    }
+    if (s.slot === "before" && Number.isFinite(kickoff) && time >= kickoff) {
+      throw new PlacesError(`${label} must be before kickoff.`, 400);
     }
     if (s.slot === "after" && Number.isFinite(kickoff) && time <= kickoff) {
       throw new PlacesError(`${label} must be after kickoff.`, 400);

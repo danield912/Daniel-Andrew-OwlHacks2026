@@ -7,6 +7,8 @@ import { PlanMap } from "./plan-map";
 import { InvitePanel } from "./invite-panel";
 import { MembersList } from "./members-list";
 import { PlanActions } from "./plan-actions";
+import { GameDayStops } from "./game-day-stops";
+import { ScheduleTimeline } from "./schedule-timeline";
 
 export function PlanDetails({ id }: { id: string }) {
   const [plan, setPlan] = useState<SavedPlan | null>(null);
@@ -43,30 +45,18 @@ export function PlanDetails({ id }: { id: string }) {
         {(["map", "schedule"] as const).map(value => <button key={value} aria-pressed={view === value} onClick={() => setView(value)} className={`rounded-full px-6 py-3 font-semibold transition focus-visible:outline focus-visible:outline-teal-300 ${view === value ? "bg-teal-300 text-slate-950" : "bg-white/5 text-slate-300"}`}>{value === "map" ? "Map" : "Schedule"}</button>)}
       </div>
       <section className={panelClass}>
-        {view === "map" ? <PlanMap venue={plan.game.venue} /> : <>
+        {view === "map" ? <PlanMap venue={plan.game.venue} stops={plan.stops} /> : <>
           <h2 className="text-2xl font-bold">Your game-day schedule</h2>
-          {route ? <>
-          <p className="mt-2 text-sm text-slate-400">Philadelphia time · {plan.travelMode === "TRANSIT" ? "Transit" : "Driving"} · {Math.ceil(route.durationMinutes)} minutes of travel</p>
-          <ol className="my-7 space-y-6 border-l border-teal-300/30 pl-6">
-            <li><p className="font-semibold text-teal-200">{planTime(route.leaveByTime || route.departureTime)} — Leave by</p><p className="mt-1 text-slate-300">{plan.origin}</p></li>
-            {route.steps.map((step, index) => <li key={index} className="text-sm text-slate-300">{step}</li>)}
-            <li><p className="font-semibold text-teal-200">{planTime(route.arrivalTime)} — Stadium arrival</p><p className="mt-1 text-slate-300">{plan.game.venue.name}</p></li>
-            <li className="font-semibold text-amber-200">{planTime(plan.game.startsAt)} — Game starts</li>
-          </ol>
-          </> : <>
-          <p className="mt-2 text-sm text-slate-400">Philadelphia time · {plan.travelMode === "TRANSIT" ? "Transit" : "Driving"}</p>
-          <ol className="my-7 space-y-6 border-l border-teal-300/30 pl-6">
-            <li><p className="font-semibold text-teal-200">{planTime(plan.targetArrivalTime)} — Arrive by</p><p className="mt-1 text-slate-300">{plan.game.venue.name}</p></li>
-            <li className="font-semibold text-amber-200">{planTime(plan.game.startsAt)} — Game starts</li>
-          </ol>
-          <p className="mb-5 text-sm text-slate-400">This plan doesn’t have a saved route. Use Open directions for current travel times.</p>
-          </>}
+          <p className="mt-2 text-sm text-slate-400">Philadelphia time · {plan.travelMode === "TRANSIT" ? "Transit" : "Driving"}{route ? ` · ${Math.ceil(route.durationMinutes)} minutes of travel` : ""}</p>
+          <ScheduleTimeline plan={plan} />
+          {!route && <p className="mb-5 text-sm text-slate-400">This plan doesn’t have a saved route. Use Open directions for current travel times.</p>}
           {route?.warnings.map((warning, index) => <p key={index} className="mb-3 rounded-xl bg-amber-200/10 p-4 text-sm text-amber-100">{warning}</p>)}
-          <div className="mb-5 rounded-xl bg-white/5 p-4 text-sm text-slate-300"><p>Pregame preference: {plan.preferences.pregame} · Budget: {plan.preferences.budget}</p><p className="mt-2">No before- or after-game stops have been booked or added yet.</p></div>
+          <div className="mb-5 rounded-xl bg-white/5 p-4 text-sm text-slate-300"><p>Pregame preference: {plan.preferences.pregame} · Budget: {plan.preferences.budget}</p>{!plan.stops?.length && <p className="mt-2">No before- or after-game stops yet. Add some below.</p>}</div>
           <a className={actionClass} href={directionsUrl(plan.origin, `${plan.game.venue.name}, ${plan.game.venue.address}`, plan.travelMode)} target="_blank" rel="noopener noreferrer">Open directions ↗</a>
           <p className="mt-3 text-xs text-slate-400">Check the date and time in Google Maps; its route may differ. Route information powered by Google.</p>
         </>}
       </section>
+      <GameDayStops plan={plan} onStopsChange={stops => setPlan(current => current && { ...current, stops })} />
       <div className="grid gap-6 lg:grid-cols-2">
         <MembersList members={plan.members} />
         {canInvite(plan.role) && <InvitePanel planId={plan.id} />}
