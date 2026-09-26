@@ -6,6 +6,7 @@ import { PlansShell, PlansLoading, PlansError, panelClass, actionClass } from ".
 import { PlanMap } from "./plan-map";
 import { InvitePanel } from "./invite-panel";
 import { MembersList } from "./members-list";
+import { PlanActions } from "./plan-actions";
 
 export function PlanDetails({ id }: { id: string }) {
   const [plan, setPlan] = useState<SavedPlan | null>(null);
@@ -70,6 +71,7 @@ export function PlanDetails({ id }: { id: string }) {
         <MembersList members={plan.members} />
         {canInvite(plan.role) && <InvitePanel planId={plan.id} />}
       </div>
+      <PlanActions planId={plan.id} role={plan.role} />
     </>}
   </PlansShell>;
 }
