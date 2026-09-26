@@ -5,6 +5,7 @@ import {
   type DeletePlanResponse,
   type PlanMember,
 } from "@/lib/plan-invites-api";
+import { savedStops, withPlaceDetails, type PlanVenue, type PlanStop } from "@/lib/places";
 import { createClient } from "@/lib/supabase/server";
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" };
@@ -70,9 +71,17 @@ export async function GET(
     }),
   );
 
+  // Stops store only Google place IDs; names and addresses are fetched fresh.
+  const row = data as unknown as SavedPlanRow & { game?: { venue?: PlanVenue } };
+  const saved = savedStops(row.itinerary);
+  const venue = row.game?.venue;
+  const stops: PlanStop[] = saved.length && venue
+    ? await withPlaceDetails(saved, venue)
+    : saved.map((stop) => ({ ...stop, place: null }));
+
   try {
     return NextResponse.json(
-      { plan: { ...serializeSavedPlan(data as unknown as SavedPlanRow, user.id), members } },
+      { plan: { ...serializeSavedPlan(row, user.id), members, stops } },
       { headers: PRIVATE_HEADERS },
     );
   } catch {

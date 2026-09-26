@@ -82,3 +82,27 @@ before "@". Full email addresses are never returned.
   `GET /api/plans/[id]`, `GET /api/invites/[token]` and its accept all return `404`.
 - Leaving removes only the signed-in user; the plan and everyone else stay.
   Someone who left can rejoin with a still-valid invite link.
+
+## Place suggestions and stops (migration `20260926220000_plan_stops.sql`)
+
+Needs **Places API (New)** enabled for `GOOGLE_MAPS_SERVER_API_KEY`. Types are in `lib/places.ts`.
+
+| Endpoint | Success | Errors |
+| --- | --- | --- |
+| `GET /api/plans/[id]/suggestions?slot=before\|after` | `200 { places: SuggestedPlace[] }` (any member) | `400` bad slot · `401` · `404` · `422` venue has no location · `502` Google failed · `503` key missing |
+| `PUT /api/plans/[id]/stops` body `{ stops: [{ placeId, slot, time }] }` | `200 { stops: PlanStop[] }` (replaces all stops) | `400` invalid stops · `401` · `403` plain member · `404` |
+
+- `SuggestedPlace` = `{ placeId, name, category, priceLevel, rating, address, location: { lat, lng }, walkMinutes, mapsUrl }`.
+  `priceLevel` is `0–4` (`1` = $) or `null`; `rating` is a number or `null`.
+- `GET /api/plans/[id]` now also returns `stops: [{ placeId, slot, time, place: { name, address, location, category } | null }]`,
+  sorted by time. `place` is `null` if Google can't return details at that moment.
+- Only `placeId`, `slot` and `time` are stored (in `plans.itinerary.stops`); place details are fetched fresh on every load.
+- Rules: at most 6 stops; `before` stops must be before the stadium arrival time, `after` stops after kickoff;
+  `time` is ISO 8601 with a timezone; no duplicate place in the same slot. Only leader/co-leader can change stops.
+- Place types: before + "Food" → restaurants; before + "Bar / hangout" → bars, sports bars, pubs, bar & grills;
+  otherwise (and all `after` searches) → both. Places priced above the budget are dropped; unknown prices are kept.
+- Search area: 2.5 km around the venue, plus East Passyunk (near the Broad Street Line) for the South Philly
+  sports complex. `walkMinutes` is straight-line distance ×1.25 at walking pace, from the venue (no paid route call).
+- For `slot=before` at the sports complex, the first result is a **Tailgate** option with `placeId: "tailgate"`
+  (no rating/price). It can be saved as a stop like any other place.
+- Show "Google Maps" attribution next to place results and link each place with `mapsUrl` (Google policy).
