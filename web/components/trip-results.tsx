@@ -59,7 +59,7 @@ export function TripResults({
   gameStart,
   venue,
 }: Props) {
-  const [scenario, setScenario] = useState<Scenario>("success");
+  const [scenario, setScenario] = useState<Scenario>("live");
   const [attempt, setAttempt] = useState(0);
   const [view, setView] = useState<View>({ status: "loading" });
 
