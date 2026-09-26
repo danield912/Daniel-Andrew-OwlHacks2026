@@ -132,7 +132,7 @@ export async function GET(request: NextRequest) {
   url.searchParams.set("countryCode", "US");
   url.searchParams.set("classificationName", "Sports");
   url.searchParams.set("city", "Philadelphia");
-  url.searchParams.set("startDateTime", startDate.toISOString());
+  url.searchParams.set("startDateTime", startDate.toISOString().replace(/\.\d{3}Z$/, "Z"));
   url.searchParams.set("sort", "date,asc");
   url.searchParams.set("size", "100");
 

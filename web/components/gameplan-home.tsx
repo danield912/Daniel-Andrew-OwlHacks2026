@@ -19,21 +19,20 @@ type Game = {
   venue: string;
 };
 
-type TicketmasterEvent = {
+type ApiGame = {
   id: string;
-  name: string;
-  dates?: {
-    start?: {
-      dateTime?: string;
-      dateTBD?: boolean;
-      dateTBA?: boolean;
-      timeTBA?: boolean;
-      noSpecificTime?: boolean;
-    };
-  };
-  _embedded?: {
-    venues?: { name?: string }[];
-  };
+  team: "eagles" | "phillies" | "sixers" | "temple";
+  homeTeam: string;
+  opponent: string;
+  startsAt: string;
+  venue: { name: string };
+};
+
+const teamLabels = {
+  eagles: "Eagles",
+  phillies: "Phillies",
+  sixers: "76ers",
+  temple: "Temple",
 };
 
 const teams = ["All teams", "Eagles", "Phillies", "76ers", "Temple"];
@@ -50,17 +49,6 @@ const buttonClass =
   "focus-visible:outline-none focus-visible:ring-2 " +
   "focus-visible:ring-white focus-visible:ring-offset-2 " +
   "focus-visible:ring-offset-[#09171b]";
-
-function getTeam(name: string) {
-  const lower = name.toLowerCase();
-
-  if (lower.includes("eagles")) return "Eagles";
-  if (lower.includes("phillies")) return "Phillies";
-  if (lower.includes("76ers") || lower.includes("sixers")) return "76ers";
-  if (lower.includes("temple") && lower.includes("football")) return "Temple";
-
-  return null;
-}
 
 function formatTime(value: string | null) {
   if (!value) return "Date or time to be confirmed";
@@ -118,34 +106,21 @@ export function GamePlanHome() {
           throw new Error(data.error || "We couldn’t load the games.");
         }
 
-        const events: TicketmasterEvent[] = data._embedded?.events ?? [];
+        if (!Array.isArray(data.games)) {
+          throw new Error("The games response was unexpected. Please try again.");
+        }
 
-        const upcoming: Game[] = events.flatMap((event) => {
-          const eventTeam = getTeam(event.name);
-          if (!eventTeam) return [];
-
-          const start = event.dates?.start;
-          const uncertain =
-            start?.dateTBD ||
-            start?.dateTBA ||
-            start?.timeTBA ||
-            start?.noSpecificTime;
-
-          const dateTime = start?.dateTime;
-          const validDate =
-            !!dateTime && Number.isFinite(Date.parse(dateTime));
-
-          if (validDate && Date.parse(dateTime) < Date.now()) return [];
-
-          return [{
-            id: event.id,
-            name: event.name,
-            team: eventTeam,
-            startTime: !uncertain && validDate ? dateTime : null,
-            venue:
-              event._embedded?.venues?.[0]?.name || "Venue to be confirmed",
-          }];
-        });
+        const upcoming: Game[] = (data.games as ApiGame[]).map((game) => ({
+          id: game.id,
+          name: game.opponent
+            ? `${game.homeTeam} vs. ${game.opponent}`
+            : game.homeTeam,
+          team: teamLabels[game.team],
+          startTime: Number.isFinite(Date.parse(game.startsAt))
+            ? game.startsAt
+            : null,
+          venue: game.venue.name,
+        }));
 
         upcoming.sort(
           (a, b) =>
