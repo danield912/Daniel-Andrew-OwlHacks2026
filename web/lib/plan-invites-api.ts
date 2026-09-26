@@ -41,6 +41,18 @@ export type AcceptInviteResponse = {
   joined: boolean;
 };
 
+// DELETE /api/plans/[id] -> 200 { deleted: true }
+export type DeletePlanResponse = { deleted: true };
+// POST /api/plans/[id]/leave -> 200 { left: true }
+export type LeavePlanResponse = { left: true };
+
+export const PLAN_ERRORS = {
+  signIn: "Please sign in.",
+  notFound: "Plan not found.",
+  notLeaderDelete: "Only the plan leader can delete this plan.",
+  leaderCannotLeave: "Delete the plan instead",
+} as const;
+
 export function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status, headers: PRIVATE_HEADERS });
 }
