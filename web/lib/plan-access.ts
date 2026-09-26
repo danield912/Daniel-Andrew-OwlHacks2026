@@ -10,6 +10,7 @@ export type PlanForViewer = {
   game: { startsAt?: string; venue?: PlanVenue };
   preferences: Record<string, unknown>;
   targetArrivalTime: string;
+  travelMode: "TRANSIT" | "DRIVE";
   itinerary: Record<string, unknown>;
 };
 
@@ -18,6 +19,7 @@ type Row = {
   game: PlanForViewer["game"];
   preferences: Record<string, unknown> | null;
   target_arrival_time: string;
+  travel_mode: "TRANSIT" | "DRIVE";
   itinerary: Record<string, unknown> | null;
   plan_members: Array<{ user_id: string; role: PlanForViewer["role"] }>;
 };
@@ -31,7 +33,7 @@ export async function loadPlanForViewer(
 ): Promise<PlanForViewer | null | "error"> {
   const { data, error } = await supabase
     .from("plans")
-    .select("id,game,preferences,target_arrival_time,itinerary,plan_members!inner(user_id,role)")
+    .select("id,game,preferences,target_arrival_time,travel_mode,itinerary,plan_members!inner(user_id,role)")
     .eq("id", planId)
     .eq("plan_members.user_id", userId)
     .maybeSingle();
@@ -45,6 +47,7 @@ export async function loadPlanForViewer(
     game: row.game ?? {},
     preferences: row.preferences ?? {},
     targetArrivalTime: row.target_arrival_time,
+    travelMode: row.travel_mode,
     itinerary: row.itinerary ?? {},
   };
 }
