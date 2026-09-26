@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CalendarDays, MapPin, ArrowUpRight } from "lucide-react";
-import { plansRequest, planTime, type SavedPlan } from "@/lib/saved-plans";
+import { plansRequest, planTime, roleLabels, type SavedPlan } from "@/lib/saved-plans";
 import { PlansShell, PlansLoading, PlansError, panelClass, actionClass } from "./shared";
 
 export function PlansList() {
@@ -43,11 +43,11 @@ export function PlansList() {
     </div>
     {loading ? <PlansLoading /> : error ? <PlansError message={error} retry={() => setAttempt(n => n + 1)} /> : filtered.length === 0 ? <section className={`${panelClass} text-center`}>
       <h2 className="text-xl font-semibold">{tab === "created" ? "Your next outing starts here" : "No joined plans yet"}</h2>
-      <p className="my-4 text-slate-400">{tab === "created" ? "Choose a game, calculate your trip, then save your plan." : "Plans you join will appear here. Invitations are coming in the next step."}</p>
+      <p className="my-4 text-slate-400">{tab === "created" ? "Choose a game, calculate your trip, then save your plan." : "Plans you join from a friend’s invite link will appear here."}</p>
       <Link href="/" className={actionClass}>Explore games</Link>
     </section> : <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {filtered.map(plan => <Link href={`/plans/${encodeURIComponent(plan.id)}`} key={plan.id} className={`${panelClass} block transition motion-safe:hover:-translate-y-1 hover:border-teal-300/40 focus-visible:outline focus-visible:outline-teal-300`}>
-        <span className="rounded-full bg-teal-300/10 px-3 py-1 text-xs font-semibold text-teal-200">{plan.role.replace("_", " ")}</span>
+        <span className="rounded-full bg-teal-300/10 px-3 py-1 text-xs font-semibold text-teal-200">{roleLabels[plan.role]}</span>
         <h2 className="mt-5 text-xl font-bold">{plan.title}</h2>
         <p className="mt-2 text-sm text-slate-300">{plan.game.name}</p>
         <p className="mt-5 flex items-center gap-2 text-sm"><CalendarDays size={16} aria-hidden="true" />{planTime(plan.game.startsAt)}</p>

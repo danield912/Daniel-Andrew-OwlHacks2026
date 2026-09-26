@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SavePlanButton } from "@/components/plans/save-plan-button";
 import { directionsUrl } from "@/lib/saved-plans";
+import { phillyClockTime, phillyTimeOnGameDay } from "@/lib/philly-time";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -90,7 +91,7 @@ export function GamePlanHome() {
   const [transport, setTransport] = useState("Transit");
   const [budget, setBudget] = useState("$ — Budget-friendly");
   const [pregame, setPregame] = useState("Food");
-  const [buffer, setBuffer] = useState("45");
+  const [arriveBy, setArriveBy] = useState("");
   const [showSummary, setShowSummary] = useState(false);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
   const [planError, setPlanError] = useState("");
@@ -181,11 +182,27 @@ export function GamePlanHome() {
         .includes(query.toLowerCase()),
   );
 
-  const arrivalTime = selected?.startTime
-    ? new Date(
-        Date.parse(selected.startTime) - Number(buffer) * 60_000,
-      ).toISOString()
-    : null;
+  const arrivalTime =
+    selected?.startTime && arriveBy
+      ? phillyTimeOnGameDay(selected.startTime, arriveBy)
+      : null;
+
+  const kickoffClock = selected?.startTime
+    ? phillyClockTime(selected.startTime)
+    : "";
+
+  let arrivalError = "";
+  if (selected && !selected.startTime) {
+    arrivalError = "This game’s start time isn’t confirmed yet, so we can’t plan your arrival.";
+  } else if (selected?.startTime && !arrivalTime) {
+    arrivalError = "Choose when you want to arrive at the stadium.";
+  } else if (selected?.startTime && arrivalTime) {
+    if (Date.parse(arrivalTime) > Date.parse(selected.startTime)) {
+      arrivalError = `Pick a time at or before kickoff (${formatTime(selected.startTime)}).`;
+    } else if (Date.parse(arrivalTime) <= Date.now()) {
+      arrivalError = "That arrival time has already passed. Pick a later time.";
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#09171b] text-slate-100">
@@ -370,6 +387,13 @@ export function GamePlanHome() {
                     className={`${buttonClass} mt-auto w-full disabled:opacity-60`}
                     onClick={() => {
                       setSelected(game);
+                      setArriveBy(
+                        game.startTime
+                          ? phillyClockTime(
+                              new Date(Date.parse(game.startTime) - 45 * 60_000).toISOString(),
+                            )
+                          : "",
+                      );
                       setShowSummary(false);
                       setPlanResult(null);
                       setPlanError("");
@@ -407,7 +431,7 @@ export function GamePlanHome() {
               }}
               onSubmit={async (event) => {
                 event.preventDefault();
-                if (!origin.trim()) return;
+                if (!origin.trim() || !arrivalTime || arrivalError) return;
                 setPlanning(true);
                 setPlanError("");
                 setPlanResult(null);
@@ -421,7 +445,7 @@ export function GamePlanHome() {
                       gameId: selected.id,
                       origin: origin.trim(),
                       travelMode: transport === "Transit" ? "TRANSIT" : "DRIVE",
-                      arrivalBufferMinutes: Number(buffer),
+                      targetArrivalTime: arrivalTime,
                     }),
                   });
                   const data = await response.json();
@@ -506,21 +530,30 @@ export function GamePlanHome() {
               </label>
 
               <label className="text-sm font-medium">
-                Arrive at the stadium
-                <select
-                  disabled={planning}
-                  value={buffer}
-                  onChange={(event) => setBuffer(event.target.value)}
-                  className={inputClass}
+                Arrive at the stadium by
+                <input
+                  type="time"
+                  required
+                  step={300}
+                  disabled={planning || !selected.startTime}
+                  max={kickoffClock || undefined}
+                  value={arriveBy}
+                  onChange={(event) => setArriveBy(event.target.value)}
+                  aria-invalid={Boolean(arrivalError)}
+                  aria-describedby="arrive-by-hint"
+                  className={`${inputClass} [color-scheme:dark]`}
+                />
+                <span
+                  id="arrive-by-hint"
+                  className={`mt-2 block text-xs ${arrivalError ? "text-amber-200" : "text-slate-400"}`}
                 >
-                  <option value="30">30 minutes before the game</option>
-                  <option value="45">45 minutes before the game</option>
-                  <option value="60">60 minutes before the game</option>
-                </select>
+                  {arrivalError ||
+                    `Philadelphia time · Kickoff ${formatTime(selected.startTime)}`}
+                </span>
               </label>
 
               <div className="sm:col-span-2">
-                <button type="submit" disabled={planning} className={`${buttonClass} disabled:cursor-wait disabled:opacity-70`}>
+                <button type="submit" disabled={planning || Boolean(arrivalError)} className={`${buttonClass} disabled:opacity-70 ${planning ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"}`}>
                   {planning ? "Calculating route…" : "View my trip"}
                   <ArrowRight size={18} aria-hidden="true" />
                 </button>
