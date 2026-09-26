@@ -29,6 +29,19 @@ type ApiGame = {
   venue: { name: string };
 };
 
+type PlanResult = {
+  status: "ok";
+  departureTime: string;
+  arrivalTime: string;
+  leaveByTime: string;
+  scheduledDepartureTime?: string;
+  scheduledTransitArrivalTime?: string;
+  durationMinutes: number;
+  durationKind: "scheduled" | "estimated";
+  steps: string[];
+  warnings: string[];
+};
+
 const teamLabels = {
   eagles: "Eagles",
   phillies: "Phillies",
@@ -78,6 +91,9 @@ export function GamePlanHome() {
   const [pregame, setPregame] = useState("Food");
   const [buffer, setBuffer] = useState("45");
   const [showSummary, setShowSummary] = useState(false);
+  const [planResult, setPlanResult] = useState<PlanResult | null>(null);
+  const [planError, setPlanError] = useState("");
+  const [planning, setPlanning] = useState(false);
 
   const formHeading = useRef<HTMLHeadingElement>(null);
   const summaryHeading = useRef<HTMLHeadingElement>(null);
@@ -344,6 +360,8 @@ export function GamePlanHome() {
                     onClick={() => {
                       setSelected(game);
                       setShowSummary(false);
+                      setPlanResult(null);
+                      setPlanError("");
                     }}
                   >
                     {selected?.id === game.id ? "Selected game" : "Plan this game"}
@@ -371,11 +389,54 @@ export function GamePlanHome() {
 
             <form
               className="mt-6 grid gap-5 sm:grid-cols-2"
-              onChange={() => setShowSummary(false)}
-              onSubmit={(event) => {
+              onChange={() => {
+                setShowSummary(false);
+                setPlanResult(null);
+                setPlanError("");
+              }}
+              onSubmit={async (event) => {
                 event.preventDefault();
                 if (!origin.trim()) return;
-                setShowSummary(true);
+                setPlanning(true);
+                setPlanError("");
+                setPlanResult(null);
+                setShowSummary(false);
+
+                try {
+                  const response = await fetch("/api/plan", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      gameId: selected.id,
+                      origin: origin.trim(),
+                      travelMode: transport === "Transit" ? "TRANSIT" : "DRIVE",
+                      arrivalBufferMinutes: Number(buffer),
+                    }),
+                  });
+                  const data = await response.json();
+
+                  if (!response.ok) {
+                    throw new Error(data.error || "We couldn’t calculate your route.");
+                  }
+                  if (data.status === "unavailable") {
+                    setPlanError(data.message || "No route is available for that arrival time.");
+                    return;
+                  }
+                  if (data.status !== "ok") {
+                    throw new Error("The route response was unexpected. Please try again.");
+                  }
+
+                  setPlanResult(data as PlanResult);
+                  setShowSummary(true);
+                } catch (caught) {
+                  setPlanError(
+                    caught instanceof Error
+                      ? caught.message
+                      : "We couldn’t calculate your route. Please try again.",
+                  );
+                } finally {
+                  setPlanning(false);
+                }
               }}
             >
               <label className="text-sm font-medium sm:col-span-2">
@@ -442,15 +503,24 @@ export function GamePlanHome() {
               </label>
 
               <div className="sm:col-span-2">
-                <button type="submit" className={buttonClass}>
-                  View my trip
+
+                <button type="submit" disabled={planning} className={`${buttonClass} disabled:cursor-wait disabled:opacity-70`}>
+                  {planning ? "Calculating route…" : "View my trip"}
                   <ArrowRight size={18} aria-hidden="true" />
                 </button>
+
+                
                 <p className="mt-3 text-xs text-slate-400">
-                  Preview only. Your plan isn’t saved yet.
+                  Your plan isn’t saved yet.
                 </p>
               </div>
             </form>
+
+            {planError && (
+              <p role="alert" className="mt-5 rounded-xl border border-amber-300/30 bg-amber-300/5 p-4 text-sm text-amber-100">
+                {planError}
+              </p>
+            )}
           </section>
         )}
 
@@ -466,7 +536,7 @@ export function GamePlanHome() {
               tabIndex={-1}
               className="mt-3 text-2xl font-bold"
             >
-              Here’s your starting plan
+              Your route is ready
             </h2>
 
             <dl className="mt-6 grid gap-5 sm:grid-cols-2">
@@ -474,9 +544,15 @@ export function GamePlanHome() {
                 ["Game", selected.name],
                 ["Starting from", origin.trim()],
                 ["Transportation", transport],
-                ["Food budget", budget],
-                ["Pregame", pregame],
-                ["Target stadium arrival", formatTime(arrivalTime)],
+                ["Leave by", formatTime(planResult?.leaveByTime ?? null)],
+                [
+                  planResult?.scheduledDepartureTime
+                    ? "Scheduled transit departure"
+                    : "Estimated drive departure",
+                  formatTime(planResult?.departureTime ?? null),
+                ],
+                ["Stadium arrival", formatTime(planResult?.arrivalTime ?? arrivalTime)],
+                ["Route duration", `${planResult?.durationMinutes ?? ""} minutes`],
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt className="text-sm text-slate-400">{label}</dt>
@@ -485,10 +561,31 @@ export function GamePlanHome() {
               ))}
             </dl>
 
-            <p className="mt-6 rounded-xl bg-white/5 p-4 text-sm text-slate-300">
-              {arrivalTime
-                ? "This is your target arrival, not a departure estimate. Routes and restaurant recommendations come next. Game times may change."
-                : "The game’s start time is unconfirmed. A timed itinerary will be available once the time is known."}
+            {planResult?.steps.length ? (
+              <div className="mt-6 rounded-xl bg-white/5 p-4 text-sm text-slate-200">
+                <h3 className="font-semibold text-white">Your route</h3>
+                <ol className="mt-3 space-y-2">
+                  {planResult.steps.map((step, index) => (
+                    <li key={`${step}-${index}`} className="flex gap-3">
+                      <span className="text-teal-200">{index + 1}.</span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ) : null}
+
+            {planResult?.warnings.length ? (
+              <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/5 p-4 text-sm text-amber-100">
+                {planResult.warnings.join(" ")}
+              </div>
+            ) : null}
+
+            <p className="mt-6 text-xs text-slate-400">
+              {planResult?.durationKind === "estimated"
+                ? "Driving times are estimates and can change with traffic."
+                : "Transit departure times come from the selected scheduled service."}{" "}
+              Powered by Google, ©2026 Google
             </p>
           </section>
         )}

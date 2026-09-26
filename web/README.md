@@ -89,8 +89,35 @@ If you wish to just develop locally and not deploy to Vercel, [follow the steps 
 5. You can now run the Next.js local development server:
 
    ```bash
-   npm run dev
-   ```
+  npm run dev
+  ```
+
+## Route planning setup
+
+The game picker calculates a stadium route through `POST /api/plan`. Add these
+server-side values to `.env.local` before using it:
+
+```env
+TICKETMASTER_API_KEY=your_ticketmaster_key
+GOOGLE_MAPS_SERVER_API_KEY=your_google_server_key
+```
+
+Enable the Google Maps Routes API for the Google Cloud project that owns the
+server key. The endpoint accepts this request shape:
+
+```json
+{
+  "gameId": "ticketmaster-event-id",
+  "origin": "Media, PA",
+  "travelMode": "TRANSIT",
+  "arrivalBufferMinutes": 45
+}
+```
+
+It returns timezone-aware ISO timestamps. Transit responses use the selected
+service's scheduled departure when available and also return `leaveByTime` for
+the full trip; driving times are clearly labeled as estimates. A route that
+cannot arrive before the requested stadium time returns `status: "unavailable"`.
 
    The starter kit should now be running on [localhost:3000](http://localhost:3000/).
 
