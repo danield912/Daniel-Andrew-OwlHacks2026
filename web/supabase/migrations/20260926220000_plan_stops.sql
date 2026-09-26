@@ -60,8 +60,12 @@ begin
       raise exception 'Invalid stop time.' using errcode = '22023';
     end;
 
-    if stop->>'slot' = 'before' and stop_time >= arrival then
-      raise exception 'Before-game stops must be before stadium arrival.' using errcode = '22023';
+    -- Pregame stops happen around the stadium: after you arrive, before kickoff.
+    if stop->>'slot' = 'before' and stop_time < arrival then
+      raise exception 'Pregame stops must be after you arrive at the stadium area.' using errcode = '22023';
+    end if;
+    if stop->>'slot' = 'before' and kickoff is not null and stop_time >= kickoff then
+      raise exception 'Pregame stops must be before kickoff.' using errcode = '22023';
     end if;
     if stop->>'slot' = 'after' and kickoff is not null and stop_time <= kickoff then
       raise exception 'After-game stops must be after kickoff.' using errcode = '22023';

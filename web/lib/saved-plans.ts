@@ -22,6 +22,30 @@ export type SavePlanInput = {
 
 export type PlanRole = "leader" | "co_leader" | "member";
 
+export type StopSlot = "before" | "after";
+// A place near the venue, looked up fresh from Google Places (never stored).
+// Matches SuggestedPlace in lib/places.ts (Andrew's API).
+export type Place = {
+  placeId: string;
+  name: string;
+  category: string; // Google's label, e.g. "Sports bar", "Italian restaurant", "Tailgate"
+  priceLevel: number | null; // 0 = free, 1 = $ … 4 = $$$$
+  rating: number | null;
+  ratingCount?: number | null; // not sent by the API yet
+  address: string;
+  location: { lat: number; lng: number };
+  walkMinutes: number | null;
+  mapsUrl: string;
+};
+
+// What the database stores for a stop: only the place id, slot, and time.
+export type StopInput = { placeId: string; slot: StopSlot; time: string };
+
+// A saved stop with fresh place details (null if Google couldn't return them).
+export type PlanStop = StopInput & {
+  place: Pick<Place, "name" | "address" | "location" | "category"> | null;
+};
+
 export type PlanMember = {
   userId: string;
   name: string;
@@ -40,6 +64,7 @@ export type SavedPlan = Omit<SavePlanInput, "routeSnapshot" | "routeCalculatedAt
   role: PlanRole;
   createdAt: string;
   members?: PlanMember[];
+  stops?: PlanStop[];
   game: {
     name: string;
     startsAt: string;
@@ -103,6 +128,6 @@ export function directionsUrl(origin: string, destination: string, mode: string)
   url.searchParams.set("api", "1");
   url.searchParams.set("origin", origin);
   url.searchParams.set("destination", destination);
-  url.searchParams.set("travelmode", mode === "TRANSIT" ? "transit" : "driving");
+  url.searchParams.set("travelmode", mode === "TRANSIT" ? "transit" : mode === "WALK" ? "walking" : "driving");
   return url.toString();
 }
