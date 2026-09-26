@@ -45,7 +45,9 @@ editor with the plan id and that user's email.
 ## Open item
 
 Check Google Maps Platform terms on caching Routes API content before keeping
-`route_snapshot` long-term (e.g. purge or re-fetch it after the game).
+`route_snapshot` long-term (e.g. purge or re-fetch it after the game). The purge
+script was removed for the hackathon so nobody runs it by accident; the plan page
+still works if a plan's route is null (it shows the arrive-by time and directions).
 
 ## Invites (migration `20260926200000_create_plan_invites.sql`)
 
