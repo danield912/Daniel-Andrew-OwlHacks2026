@@ -14,14 +14,15 @@ export type SavePlanInput = {
   origin: string;
   travelMode: "TRANSIT" | "DRIVE";
   targetArrivalTime: string;
-  budget: string;
-  pregame: string;
-  route: RouteSnapshot;
+  preferences: { budget: string; pregame: string };
+  itinerary: Record<string, unknown>;
+  routeSnapshot: RouteSnapshot;
   routeCalculatedAt: string;
 };
 
 export type SavedPlan = SavePlanInput & {
   id: string;
+  gameId: string;
   title: string;
   role: "leader" | "co_leader" | "member";
   createdAt: string;
