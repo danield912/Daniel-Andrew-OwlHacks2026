@@ -50,10 +50,7 @@ export async function updateSession(request: NextRequest) {
   if (
     request.nextUrl.pathname !== "/" &&
     !request.nextUrl.pathname.startsWith("/api/") &&
-<<<<<<< HEAD
     !request.nextUrl.pathname.startsWith("/invite/") &&
-=======
->>>>>>> 54619b4 (Add Supabase tables, plan CRUD endpoints, and state persistence)
     !user &&
     !request.nextUrl.pathname.startsWith("/login") &&
     !request.nextUrl.pathname.startsWith("/auth")
