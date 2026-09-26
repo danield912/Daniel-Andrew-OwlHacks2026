@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { serializeSavedPlan, type SavedPlanRow } from "@/lib/saved-plan-api";
+import type { PlanMember } from "@/lib/plan-invites-api";
 import { createClient } from "@/lib/supabase/server";
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" };
@@ -47,9 +48,27 @@ export async function GET(
   if (error) return jsonError("We couldn’t load this plan. Please try again.", 500);
   if (!data) return jsonError("Plan not found.", 404);
 
+  // Names and roles only; get_plan_members returns nothing to non-members.
+  const { data: memberRows, error: membersError } = await supabase.rpc(
+    "get_plan_members",
+    { p_plan_id: id },
+  );
+  // A members lookup problem (e.g. the invites migration not applied yet)
+  // must not block opening the plan itself.
+  if (membersError) console.error("get_plan_members failed:", membersError.message);
+  type MemberRow = { user_id: string; name: string; role: PlanMember["role"] };
+  const members: PlanMember[] = (membersError ? [] : (memberRows as MemberRow[] | null) ?? []).map(
+    (member) => ({
+      userId: member.user_id,
+      name: member.name,
+      role: member.role,
+      isYou: member.user_id === user.id,
+    }),
+  );
+
   try {
     return NextResponse.json(
-      { plan: serializeSavedPlan(data as unknown as SavedPlanRow, user.id) },
+      { plan: { ...serializeSavedPlan(data as unknown as SavedPlanRow, user.id), members } },
       { headers: PRIVATE_HEADERS },
     );
   } catch {
