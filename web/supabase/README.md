@@ -46,3 +46,25 @@ editor with the plan id and that user's email.
 
 Check Google Maps Platform terms on caching Routes API content before keeping
 `route_snapshot` long-term (e.g. purge or re-fetch it after the game).
+
+## Invites (migration `20260926200000_create_plan_invites.sql`)
+
+Field names follow Daniel's `lib/saved-plans.ts` (`PlanMember`, `InvitePreview`);
+`lib/plan-invites-api.ts` mirrors them. Every error is `{ "error": "Readable message" }`
+and every response is `Cache-Control: private, no-store`.
+
+| Endpoint | Success | Errors |
+| --- | --- | --- |
+| `POST /api/plans/[id]/invites` | `201 { invite: { token, url, expiresAt } }` | `401` signed out · `403` member but not leader/co-leader · `404` no plan or not a member |
+| `GET /api/invites/[token]` (works signed out) | `200 { invite: InvitePreview }` | `404` made-up link · `410` expired link |
+| `POST /api/invites/[token]/accept` | `200 { plan: { id }, joined }` | `401` signed out · `404` made-up link · `410` expired link |
+
+- Links last 7 days; each click makes a new one.
+- `InvitePreview` = `{ planId, planTitle, invitedBy, expiresAt, alreadyMember, game: { name, startsAt, venue: { name } } }`.
+  Never includes the origin, itinerary, route, preferences or member list.
+- Accepting is idempotent: `joined: false` means the viewer was already a member
+  (including the leader) and nothing changed.
+
+`GET /api/plans/[id]` now also returns `members: [{ userId, name, role, isYou }]`, leader first.
+`name` is the account's profile name if set, otherwise the part of the email
+before "@". Full email addresses are never returned.
