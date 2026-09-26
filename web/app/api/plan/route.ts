@@ -12,6 +12,7 @@ type PlanRequest = {
   gameId?: unknown;
   origin?: unknown;
   travelMode?: unknown;
+  targetArrivalTime?: unknown;
   arrivalBufferMinutes?: unknown;
 };
 
@@ -72,6 +73,18 @@ function toIso(milliseconds: number) {
   return new Date(milliseconds).toISOString();
 }
 
+function parseTargetArrivalTime(value: unknown) {
+  if (
+    typeof value !== "string" ||
+    !/(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ||
+    !Number.isFinite(Date.parse(value))
+  ) {
+    return undefined;
+  }
+
+  return Date.parse(value);
+}
+
 function getDestination(venue: TicketmasterVenue) {
   const latitude = Number(venue.location?.latitude);
   const longitude = Number(venue.location?.longitude);
@@ -128,6 +141,10 @@ export async function POST(request: NextRequest) {
   const gameId = typeof payload.gameId === "string" ? payload.gameId.trim() : "";
   const origin = typeof payload.origin === "string" ? payload.origin.trim() : "";
   const arrivalBufferMinutes = payload.arrivalBufferMinutes;
+  const suppliedTargetArrival = parseTargetArrivalTime(payload.targetArrivalTime);
+  const legacyArrivalBuffer = typeof arrivalBufferMinutes === "number"
+    ? arrivalBufferMinutes
+    : undefined;
 
   if (!gameId || gameId.length > 200) return badRequest("gameId is required.");
   if (origin.length < 2 || origin.length > 200) {
@@ -136,13 +153,16 @@ export async function POST(request: NextRequest) {
   if (!isTravelMode(payload.travelMode)) {
     return badRequest("travelMode must be TRANSIT or DRIVE.");
   }
-  if (
-    typeof arrivalBufferMinutes !== "number" ||
-    !Number.isInteger(arrivalBufferMinutes) ||
-    arrivalBufferMinutes < 0 ||
-    arrivalBufferMinutes > 180
-  ) {
-    return badRequest("arrivalBufferMinutes must be a whole number from 0 to 180.");
+  if (payload.targetArrivalTime !== undefined && suppliedTargetArrival === undefined) {
+    return badRequest("targetArrivalTime must be an ISO 8601 timestamp with a timezone.");
+  }
+  if (suppliedTargetArrival === undefined && (
+    legacyArrivalBuffer === undefined ||
+    !Number.isInteger(legacyArrivalBuffer) ||
+    legacyArrivalBuffer < 0 ||
+    legacyArrivalBuffer > 180
+  )) {
+    return badRequest("targetArrivalTime is required.");
   }
 
   const ticketmasterApiKey = process.env.TICKETMASTER_API_KEY;
@@ -184,11 +204,16 @@ export async function POST(request: NextRequest) {
     return unavailable("This game does not have enough venue or start-time information to plan a route.");
   }
 
-  const targetArrival = gameStart - arrivalBufferMinutes * 60_000;
+  // `arrivalBufferMinutes` remains as a short-lived compatibility path while
+  // the homepage moves to its Philadelphia-time arrival picker.
+  const targetArrival = suppliedTargetArrival ?? gameStart - legacyArrivalBuffer! * 60_000;
   const now = Date.now();
 
   if (targetArrival <= now) {
     return unavailable("The requested stadium arrival time has already passed.");
+  }
+  if (targetArrival > gameStart) {
+    return unavailable("The requested stadium arrival time is after the game starts.");
   }
   if (payload.travelMode === "TRANSIT" && targetArrival - now > MAX_TRANSIT_LOOKAHEAD_MS) {
     return unavailable("Transit schedules are available only up to 100 days ahead. Try again closer to game day.");
@@ -268,6 +293,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     status: "ok",
+    calculatedAt: toIso(Date.now()),
     // Transit uses the actual selected service departure. Driving is an estimate.
     departureTime: isTransit && scheduledDeparture ? scheduledDeparture : leaveByTime,
     arrivalTime,
