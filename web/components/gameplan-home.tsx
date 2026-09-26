@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { TripResults } from "@/components/trip-results";
+import { SavePlanButton } from "@/components/plans/save-plan-button";
+import { directionsUrl } from "@/lib/saved-plans";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -94,6 +95,7 @@ export function GamePlanHome() {
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
   const [planError, setPlanError] = useState("");
   const [planning, setPlanning] = useState(false);
+  const [routeCalculatedAt, setRouteCalculatedAt] = useState("");
 
   const formHeading = useRef<HTMLHeadingElement>(null);
   const summaryHeading = useRef<HTMLHeadingElement>(null);
@@ -190,7 +192,7 @@ export function GamePlanHome() {
       <header className="border-b border-white/10 bg-[#0d2026]">
         <nav
           aria-label="Main navigation"
-          className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-5"
+          className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-5"
         >
           <Link href="/" className="flex items-center gap-3 font-bold">
             <span className="rounded-xl bg-teal-300 p-2 text-slate-950">
@@ -198,13 +200,21 @@ export function GamePlanHome() {
             </span>
             Philly GamePlan
           </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/plans"
+              className="rounded-xl bg-teal-300/10 px-4 py-2 text-sm font-semibold text-teal-200 hover:bg-teal-300/20 focus-visible:outline focus-visible:outline-teal-300"
+            >
+              My Plans
+            </Link>
 
-          <Link
-            href="/auth/login"
-            className="rounded-xl border border-white/20 px-4 py-2 text-sm hover:bg-white/10 focus-visible:outline focus-visible:outline-teal-300"
-          >
-            Account
-          </Link>
+            <Link
+              href="/auth/login"
+              className="rounded-xl border border-white/20 px-4 py-2 text-sm hover:bg-white/10 focus-visible:outline focus-visible:outline-teal-300"
+            >
+              Account
+            </Link>
+          </div>
         </nav>
       </header>
 
@@ -356,7 +366,8 @@ export function GamePlanHome() {
                     {game.venue}
                   </p>
                   <button
-                    className={`${buttonClass} mt-auto w-full`}
+                    disabled={planning}
+                    className={`${buttonClass} mt-auto w-full disabled:opacity-60`}
                     onClick={() => {
                       setSelected(game);
                       setShowSummary(false);
@@ -426,6 +437,7 @@ export function GamePlanHome() {
                     throw new Error("The route response was unexpected. Please try again.");
                   }
 
+                  setRouteCalculatedAt(new Date().toISOString());
                   setPlanResult(data as PlanResult);
                   setShowSummary(true);
                 } catch (caught) {
@@ -443,6 +455,7 @@ export function GamePlanHome() {
                 Where are you starting?
                 <input
                   required
+                  disabled={planning}
                   maxLength={200}
                   value={origin}
                   onChange={(event) => setOrigin(event.target.value)}
@@ -454,6 +467,7 @@ export function GamePlanHome() {
               <label className="text-sm font-medium">
                 How are you getting there?
                 <select
+                  disabled={planning}
                   value={transport}
                   onChange={(event) => setTransport(event.target.value)}
                   className={inputClass}
@@ -466,6 +480,7 @@ export function GamePlanHome() {
               <label className="text-sm font-medium">
                 Food budget
                 <select
+                  disabled={planning}
                   value={budget}
                   onChange={(event) => setBudget(event.target.value)}
                   className={inputClass}
@@ -479,6 +494,7 @@ export function GamePlanHome() {
               <label className="text-sm font-medium">
                 Before the game
                 <select
+                  disabled={planning}
                   value={pregame}
                   onChange={(event) => setPregame(event.target.value)}
                   className={inputClass}
@@ -492,6 +508,7 @@ export function GamePlanHome() {
               <label className="text-sm font-medium">
                 Arrive at the stadium
                 <select
+                  disabled={planning}
                   value={buffer}
                   onChange={(event) => setBuffer(event.target.value)}
                   className={inputClass}
@@ -503,13 +520,10 @@ export function GamePlanHome() {
               </label>
 
               <div className="sm:col-span-2">
-
                 <button type="submit" disabled={planning} className={`${buttonClass} disabled:cursor-wait disabled:opacity-70`}>
                   {planning ? "Calculating route…" : "View my trip"}
                   <ArrowRight size={18} aria-hidden="true" />
                 </button>
-
-                
                 <p className="mt-3 text-xs text-slate-400">
                   Your plan isn’t saved yet.
                 </p>
@@ -589,17 +603,40 @@ export function GamePlanHome() {
             </p>
           </section>
         )}
-        {showSummary && selected && selected.startTime && ( 
-          <TripResults 
-          key={`${selected.id}-${origin}-${transport}-${buffer}`}
-          gameId={selected.id}
-          origin={origin.trim()}
-          transport={transport}
-          buffer={Number(buffer)}
-          gameStart={selected.startTime}
-          venue={selected.venue}
-        />
-        )}
+        {showSummary &&
+          selected &&
+          planResult &&
+          arrivalTime &&
+          routeCalculatedAt && (
+            <section className="rounded-3xl border border-white/10 bg-[#10232a] p-6">
+              <SavePlanButton
+                key={`${selected.id}-${routeCalculatedAt}`}
+                input={{
+                  gameId: selected.id,
+                  origin: origin.trim(),
+                  travelMode: transport === "Transit" ? "TRANSIT" : "DRIVE",
+                  targetArrivalTime: arrivalTime,
+                  budget,
+                  pregame,
+                  route: planResult,
+                  routeCalculatedAt,
+                }}
+              />
+
+              <a
+                href={directionsUrl(
+                  origin.trim(),
+                  `${selected.venue}, Philadelphia, PA`,
+                  transport === "Transit" ? "TRANSIT" : "DRIVE",
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-5 inline-block text-teal-200 underline"
+              >
+                Open directions ↗
+              </a>
+            </section>
+          )}
         <footer className="border-t border-white/10 py-6 text-sm text-slate-400">
           Philly GamePlan · Made for the whole game day.
         </footer>
