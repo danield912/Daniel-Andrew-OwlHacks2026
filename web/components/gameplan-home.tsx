@@ -616,9 +616,9 @@ export function GamePlanHome() {
                   origin: origin.trim(),
                   travelMode: transport === "Transit" ? "TRANSIT" : "DRIVE",
                   targetArrivalTime: arrivalTime,
-                  budget,
-                  pregame,
-                  route: planResult,
+                  preferences: { budget, pregame },
+                  itinerary: {},
+                  routeSnapshot: planResult,
                   routeCalculatedAt,
                 }}
               />
