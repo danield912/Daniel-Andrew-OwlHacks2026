@@ -1,11 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import { Barlow_Condensed, Bricolage_Grotesque, Geist } from "next/font/google";
 import { Providers } from "@/components/gp/providers";
+import { siteUrl } from "@/lib/site-url";
 import "./globals.css";
 
-const defaultUrl = process.env.VERCEL_URL
-  ? `https://${process.env.VERCEL_URL}`
-  : "http://localhost:3000";
+// Chat apps fetch the preview image from here, so it must be the public
+// domain; Vercel's per-deployment URLs sit behind a login.
+const vercelHost = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+const defaultUrl = siteUrl() ?? (vercelHost ? `https://${vercelHost}` : "http://localhost:3000");
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),

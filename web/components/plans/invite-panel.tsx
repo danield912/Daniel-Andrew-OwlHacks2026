@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Copy, Share2, UserPlus } from "lucide-react";
 import { plansRequest, planTime } from "@/lib/saved-plans";
+import { siteUrl } from "@/lib/site-url";
 import { Button } from "@/components/gp/button";
 import { InlineAlert } from "@/components/gp/states";
 import { useToast } from "@/components/gp/toast";
@@ -26,7 +27,7 @@ export function InvitePanel({ planId }: { planId: string }) {
         signal: AbortSignal.timeout(15000),
       });
       if (typeof data.invite?.token !== "string") throw new Error("The server did not return an invite link. Please try again.");
-      setLink(`${window.location.origin}/invite/${encodeURIComponent(data.invite.token)}`);
+      setLink(`${siteUrl() ?? window.location.origin}/invite/${encodeURIComponent(data.invite.token)}`);
       setExpiresAt(typeof data.invite.expiresAt === "string" ? data.invite.expiresAt : "");
       setCopied(false);
     } catch (caught) {
