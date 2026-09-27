@@ -22,6 +22,7 @@ import { Skeleton } from "@/components/gp/states";
 import { initialsOf } from "@/components/gp/user";
 import { AVATAR_COLORS, avatarIndex } from "./members-list";
 import { RunningLateButton } from "./live-ui";
+import { TransitStatus, ridesOn } from "./transit-status";
 import type { Live } from "./use-live";
 
 function mapsTo(lat: number, lng: number) {
@@ -163,6 +164,7 @@ export function MemberCard({ plan, member, live, open, onClose }: {
               <span className="pt-1">{step}</span>
             </motion.li>)}
           </ol>}
+          {member.start.travelMode === "TRANSIT" && <TransitStatus lines={ridesOn(route.steps)} />}
           <p className="mt-3 text-xs text-slate-500">Saved when they added their start. Route data from Google.</p>
         </>}
       </section>

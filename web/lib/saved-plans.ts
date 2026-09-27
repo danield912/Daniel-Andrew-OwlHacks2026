@@ -88,6 +88,7 @@ export type SavedPlan = Omit<SavePlanInput, "routeSnapshot" | "routeCalculatedAt
   game: {
     name: string;
     startsAt: string;
+    ticketUrl?: string; // Ticketmaster page (plans saved after tickets were added)
     venue: {
       name: string;
       address: string;
@@ -134,6 +135,13 @@ export function canEditStops(role: PlanRole) {
 
 export function myMember(plan: Pick<SavedPlan, "members">) {
   return plan.members?.find(member => member.isYou) ?? null;
+}
+
+// Ticketmaster link for a game, falling back to a search for older plans.
+export function ticketLink(game: { name: string; ticketUrl?: string }) {
+  return game.ticketUrl && /^https:\/\//.test(game.ticketUrl)
+    ? game.ticketUrl
+    : `https://www.ticketmaster.com/search?q=${encodeURIComponent(game.name)}`;
 }
 
 export function planTime(value: string) {

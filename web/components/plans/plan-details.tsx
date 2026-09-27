@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, CalendarDays, ExternalLink, Map as MapIcon, MapPin, Route } from "lucide-react";
-import { plansRequest, planTime, directionsUrl, canInvite, myMember, ROLE_INFO, type MemberStart, type SavedPlan } from "@/lib/saved-plans";
+import { plansRequest, planTime, directionsUrl, canInvite, myMember, ROLE_INFO, ticketLink, type MemberStart, type SavedPlan } from "@/lib/saved-plans";
 import { estimatedGameEnd, placeEmoji, stadiumArrival, viewerTrip } from "@/lib/game-day";
 import { teamLook, tidyMatchup } from "@/lib/team-style";
 import { SegmentedTabs } from "@/components/gp/tabs";
@@ -17,6 +17,8 @@ import { PlanActions } from "./plan-actions";
 import { GameDayStops } from "./game-day-stops";
 import { ScheduleTimeline } from "./schedule-timeline";
 import { MyStart } from "./my-start";
+import { GameDayKit } from "./game-day-kit";
+import { GettingHome } from "./getting-home";
 import { MemberCard } from "./member-card";
 import { LateBanner, LiveBar } from "./live-ui";
 import { useLive } from "./use-live";
@@ -175,6 +177,12 @@ export function PlanDetails({ id }: { id: string }) {
               <span className="flex items-center gap-2"><CalendarDays size={17} aria-hidden="true" />{planTime(plan.game.startsAt)}</span>
               <span className="flex items-center gap-2"><MapPin size={17} aria-hidden="true" />{plan.game.venue.name}</span>
             </div>
+            <a
+              href={ticketLink(plan.game)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-5 inline-flex h-10 items-center gap-2 rounded-2xl bg-black/30 px-4 text-sm font-semibold text-white ring-1 ring-white/20 backdrop-blur transition hover:bg-black/40"
+            >🎟️ Get tickets <ExternalLink size={14} aria-hidden="true" /></a>
           </div>
           <div className="rounded-3xl bg-night-950/50 p-4 backdrop-blur-md">
             <Scoreboard startsAt={plan.game.startsAt} />
@@ -187,6 +195,8 @@ export function PlanDetails({ id }: { id: string }) {
       {me && !me.start && <MyStart plan={plan} start={null} welcome={welcome} onSaved={saveMyStart} />}
 
       <DayAtAGlance plan={plan} />
+
+      <GameDayKit plan={plan} />
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-6">
@@ -234,6 +244,8 @@ export function PlanDetails({ id }: { id: string }) {
             onStopsChange={stops => setPlan(current => current && { ...current, stops })}
             onSuggestionsChange={suggestions => setPlan(current => current && { ...current, suggestions })}
           />
+
+          <GettingHome plan={plan} />
         </div>
 
         <aside className="space-y-6 lg:sticky lg:top-24">

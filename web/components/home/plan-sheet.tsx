@@ -123,6 +123,7 @@ export function PlanSheet({ game, open, onClose }: { game: Game | null; open: bo
   const subtitle = <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
     <span className="flex items-center gap-1.5"><Clock size={14} aria-hidden="true" />{formatGameTime(game.startTime, true)}</span>
     <span className="flex items-center gap-1.5"><MapPin size={14} aria-hidden="true" />{game.venue}</span>
+    {game.ticketUrl && <a href={game.ticketUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-mint-200 hover:text-white">🎟️ Get tickets ↗</a>}
   </span>;
 
   const footer = !planResult ? <Button

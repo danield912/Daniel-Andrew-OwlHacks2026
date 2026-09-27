@@ -8,6 +8,7 @@ export type Game = {
   team: TeamKey;
   startTime: string | null;
   venue: string;
+  ticketUrl?: string;
 };
 
 export type PlanResult = {

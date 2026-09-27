@@ -8,6 +8,7 @@ import { ChoiceGroup } from "@/components/gp/choice";
 import { InlineAlert } from "@/components/gp/states";
 import { useToast } from "@/components/gp/toast";
 import { useUser } from "@/components/gp/user";
+import { TransitStatus, ridesOn } from "./transit-status";
 
 type Travel = "TRANSIT" | "DRIVE";
 
@@ -156,6 +157,7 @@ export function MyStart({ plan, start, welcome = false, onSaved }: {
         </div> : <p className="mt-3 rounded-2xl bg-white/[0.04] p-3 text-sm text-slate-300">
           No saved leave time from here. Use Directions for current travel times, or edit your start to try again.
         </p>}
+        {route && start!.travelMode === "TRANSIT" && <TransitStatus lines={ridesOn(route.steps)} />}
         {!start!.location && <p className="mt-3 text-xs text-amber-200">Your pin isn’t on the map yet. Edit and save again to add it.</p>}
       </motion.div>}
     </AnimatePresence>

@@ -38,6 +38,7 @@ type TicketmasterVenue = {
 
 type TicketmasterEvent = {
   name?: string;
+  url?: string;
   dates?: { start?: { dateTime?: string } };
   _embedded?: { venues?: TicketmasterVenue[] };
 };
@@ -100,6 +101,8 @@ async function canonicalGame(gameId: string) {
       latitude: finiteCoordinate(venue.location?.latitude),
       longitude: finiteCoordinate(venue.location?.longitude),
     },
+    // Ticketmaster's page for this game, for the "Get tickets" button.
+    ...(typeof event.url === "string" && /^https:\/\//.test(event.url) ? { ticketUrl: event.url } : {}),
   };
 }
 

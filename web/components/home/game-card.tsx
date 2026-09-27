@@ -34,6 +34,12 @@ export function GameCard({ game, onPlan }: { game: Game; onPlan: (game: Game) =>
           <p className="flex items-center gap-2"><CalendarDays size={16} className="shrink-0 text-slate-500" aria-hidden="true" />{formatGameTime(game.startTime, true)}</p>
           <p className="flex items-center gap-2"><MapPin size={16} className="shrink-0 text-slate-500" aria-hidden="true" />{game.venue}</p>
         </div>
+        {game.ticketUrl && <a
+          href={game.ticketUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mb-2 inline-flex items-center gap-1.5 self-start rounded-lg px-1 text-sm font-semibold text-mint-200 transition hover:text-white"
+        >🎟️ Get tickets <span aria-hidden="true">↗</span></a>}
         <motion.button
           type="button"
           onClick={() => onPlan(game)}

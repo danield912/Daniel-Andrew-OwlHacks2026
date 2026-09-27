@@ -25,6 +25,7 @@ type ApiGame = {
   opponent: string;
   startsAt: string;
   venue: { name: string };
+  ticketUrl?: string;
 };
 
 type TeamFilter = "all" | TeamKey;
@@ -71,6 +72,7 @@ export function GamePlanHome() {
             team: game.team,
             startTime: Number.isFinite(Date.parse(game.startsAt)) ? game.startsAt : null,
             venue: game.venue.name,
+            ticketUrl: typeof game.ticketUrl === "string" && game.ticketUrl.startsWith("https://") ? game.ticketUrl : undefined,
           }));
         upcoming.sort((a, b) => (a.startTime ? Date.parse(a.startTime) : Infinity) - (b.startTime ? Date.parse(b.startTime) : Infinity));
         setGames(upcoming);
