@@ -32,3 +32,12 @@ Details:
   and are purged on every live request (plus every 15 minutes via pg_cron if Supabase allows it). Leaving or
   deleting a plan removes them immediately.
 - Alerts store a Google place ID for stop targets, never place names.
+
+**Crew update (per-person trips and missed rides):**
+
+- ETAs and automatic checks use each member's own `travel_mode` from `plan_members` (everyone starts from their own address).
+- **Missed train/bus:** if a SEPTA rider's scheduled ride left 3+ minutes ago and their live spot is still within 800 m of their
+  starting point, the automatic alert gets a `note` like "Looks like they missed the 10:15 AM B1 train at Cecil B. Moore."
+  and fires at 5+ minutes late instead of 10. The ETA endpoint returns the same `note` and the person's `travelMode`.
+- Manual alerts from the app send a reason as the note: "Missed my train 🚇", "Missed my bus 🚌", "Stuck in traffic 🚗",
+  or "Running behind ⏰", plus an optional short message.

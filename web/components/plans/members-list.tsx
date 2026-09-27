@@ -96,11 +96,12 @@ function MemberMenu({ member, busy, onRole, onRemove }: {
   </div>;
 }
 
-export function MembersList({ planId, members, viewerRole, onChange }: {
+export function MembersList({ planId, members, viewerRole, onChange, onSelect }: {
   planId: string;
   members?: PlanMember[];
   viewerRole: PlanRole;
   onChange: (members: PlanMember[]) => void;
+  onSelect?: (userId: string) => void; // opens their card (ETA and route)
 }) {
   const toast = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -164,6 +165,12 @@ export function MembersList({ planId, members, viewerRole, onChange }: {
           exit={{ opacity: 0, x: 20, height: 0 }}
           className="flex items-center gap-3 rounded-2xl px-2 py-2 transition-colors hover:bg-white/[0.04]"
         >
+          <button
+            type="button"
+            onClick={() => onSelect?.(member.userId)}
+            aria-label={`See ${member.isYou ? "your" : `${member.name}’s`} trip`}
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left focus-visible:outline focus-visible:outline-mint-300"
+          >
           <Avatar member={member} />
           <div className="min-w-0 flex-1">
             <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -177,6 +184,7 @@ export function MembersList({ planId, members, viewerRole, onChange }: {
             </p>
             <p className="mt-0.5 truncate text-xs">{startLine(member)}</p>
           </div>
+          </button>
           {isLeader && !member.isYou && member.role !== "leader" && <MemberMenu
             member={member}
             busy={busyId === member.userId}

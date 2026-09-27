@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { UUID_PATTERN } from "@/lib/plan-access";
-import { etaTo, EtaError, jsonError, liveContext, nextTarget, PRIVATE_HEADERS, publicTarget } from "@/lib/live";
+import { etaTo, EtaError, jsonError, liveContext, memberTrip, missedRideNote, nextTarget, PRIVATE_HEADERS, publicTarget } from "@/lib/live";
 
 // GET /api/plans/[id]/locations/[userId]/eta  (called when a friend is tapped)
 // -> { target: { kind, name, at }, etaAt, minutes, lateByMinutes, calculatedAt } or { target: null }.
@@ -27,9 +27,15 @@ export async function GET(
   const target = await nextTarget(ctx.plan);
   if (!target) return NextResponse.json({ target: null }, { headers: PRIVATE_HEADERS });
 
+  // Their own travel mode and route (everyone starts from their own address).
+  const trip = await memberTrip(ctx.supabase, id, userId, ctx.plan.travelMode);
   try {
-    const eta = await etaTo({ lat: location.lat, lng: location.lng }, target, ctx.plan.travelMode);
-    return NextResponse.json({ target: publicTarget(target), ...eta }, { headers: PRIVATE_HEADERS });
+    const at = { lat: location.lat, lng: location.lng };
+    const eta = await etaTo(at, target, trip.travelMode);
+    return NextResponse.json(
+      { target: publicTarget(target), ...eta, travelMode: trip.travelMode, note: missedRideNote(trip, at) },
+      { headers: PRIVATE_HEADERS },
+    );
   } catch (caught) {
     const message = caught instanceof EtaError ? caught.message : "ETAs are temporarily unavailable. Please try again.";
     return jsonError(message, 502);

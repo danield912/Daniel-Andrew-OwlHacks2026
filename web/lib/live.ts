@@ -15,6 +15,8 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 export const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" };
 export const LATE_THRESHOLD_MINUTES = 10;
+// A likely missed train/bus is worth telling the crew about sooner.
+export const MISSED_RIDE_THRESHOLD_MINUTES = 5;
 export const AUTO_CHECK_EVERY_MS = 3 * 60_000;
 // An automatic alert is only updated when it gets at least this much worse.
 export const MUCH_WORSE_MINUTES = 10;
@@ -90,6 +92,66 @@ export async function memberNames(supabase: Supabase, planId: string) {
     names.set(member.user_id, member.name);
   }
   return names;
+}
+
+// ---------- A member's own trip ----------
+// Everyone starts from their own address (plan_members.origin_*), with their own
+// travel mode and saved route. Falls back to the plan's travel mode.
+
+type RouteLike = { departureTime?: string; scheduledDepartureTime?: string; leaveByTime?: string; steps?: string[] };
+export type MemberTrip = { origin: LatLng | null; travelMode: "TRANSIT" | "DRIVE"; route: RouteLike | null };
+
+export async function memberTrip(
+  supabase: Supabase,
+  planId: string,
+  userId: string,
+  fallbackMode: "TRANSIT" | "DRIVE",
+): Promise<MemberTrip> {
+  const { data } = await supabase
+    .from("plan_members")
+    .select("origin_lat,origin_lng,travel_mode,route_snapshot")
+    .eq("plan_id", planId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const row = data as { origin_lat: number | null; origin_lng: number | null; travel_mode: string | null; route_snapshot: RouteLike | null } | null;
+  return {
+    origin: typeof row?.origin_lat === "number" && typeof row?.origin_lng === "number" ? { lat: row.origin_lat, lng: row.origin_lng } : null,
+    travelMode: row?.travel_mode === "DRIVE" || row?.travel_mode === "TRANSIT" ? row.travel_mode : fallbackMode,
+    route: row?.route_snapshot ?? null,
+  };
+}
+
+function phillyClock(ms: number) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(ms));
+}
+
+// "Take B1 from Cecil B. Moore to NRG" -> { line: "B1", from: "Cecil B. Moore", vehicle: "train" }
+export function firstRide(steps: string[] | undefined) {
+  for (const step of steps ?? []) {
+    const match = step.match(/^Take (.+?) from (.+?) to (.+)$/i);
+    if (!match) continue;
+    const line = match[1].trim();
+    const vehicle = /bus|route/i.test(line) || /^\d+[A-Z]?$/.test(line)
+      ? "bus"
+      : /^T\d/i.test(line) || /trolley/i.test(line) ? "trolley" : "train";
+    return { line, from: match[2].trim(), vehicle };
+  }
+  return null;
+}
+
+// A transit rider whose scheduled train or bus has already left, but who is
+// still near where they started, probably missed it. Returns a short note for
+// the crew (fits the 140-character alert note), or null.
+export function missedRideNote(trip: MemberTrip, at: LatLng, now = Date.now()): string | null {
+  if (trip.travelMode !== "TRANSIT" || !trip.route || !trip.origin) return null;
+  const leaves = Date.parse(trip.route.scheduledDepartureTime ?? trip.route.departureTime ?? "");
+  if (!Number.isFinite(leaves) || now < leaves + 3 * 60_000) return null;
+  if (distanceMeters(at, trip.origin) > 800) return null;
+  const ride = firstRide(trip.route.steps);
+  const note = ride
+    ? `Looks like they missed the ${phillyClock(leaves)} ${ride.line} ${ride.vehicle} at ${ride.from}.`
+    : `Looks like they missed their ${phillyClock(leaves)} ride.`;
+  return note.slice(0, 140);
 }
 
 // ---------- Next stop ----------
@@ -274,8 +336,10 @@ export async function autoLateCheck(ctx: LiveContext, at: LatLng) {
 
     const target = await nextTarget(ctx.plan);
     if (!target) return;
-    const eta = await etaTo(at, target, ctx.plan.travelMode);
-    if (eta.lateByMinutes < LATE_THRESHOLD_MINUTES) return;
+    const trip = await memberTrip(ctx.supabase, ctx.plan.id, ctx.userId, ctx.plan.travelMode);
+    const eta = await etaTo(at, target, trip.travelMode);
+    const note = missedRideNote(trip, at);
+    if (eta.lateByMinutes < (note ? MISSED_RIDE_THRESHOLD_MINUTES : LATE_THRESHOLD_MINUTES)) return;
 
     const stored: StoredTarget = { kind: target.kind, at: target.at, placeId: target.placeId };
     const key = targetKey(stored);
@@ -297,6 +361,7 @@ export async function autoLateCheck(ctx: LiveContext, at: LatLng) {
         target: stored,
         target_key: key,
         eta: eta.etaAt,
+        note,
       });
     } else if (eta.lateByMinutes >= existing.minutes_late + MUCH_WORSE_MINUTES) {
       // Re-surface it (new createdAt) so polling with ?since= picks it up.
@@ -305,6 +370,7 @@ export async function autoLateCheck(ctx: LiveContext, at: LatLng) {
         .update({
           minutes_late: Math.min(eta.lateByMinutes, 600),
           eta: eta.etaAt,
+          ...(note ? { note } : {}),
           created_at: new Date().toISOString(),
           dismissed_at: null,
         })

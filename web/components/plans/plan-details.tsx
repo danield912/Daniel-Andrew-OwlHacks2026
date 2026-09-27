@@ -17,6 +17,9 @@ import { PlanActions } from "./plan-actions";
 import { GameDayStops } from "./game-day-stops";
 import { ScheduleTimeline } from "./schedule-timeline";
 import { MyStart } from "./my-start";
+import { MemberCard } from "./member-card";
+import { LateBanner, LiveBar } from "./live-ui";
+import { useLive } from "./use-live";
 
 function clock(iso: string) {
   return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
@@ -93,6 +96,13 @@ export function PlanDetails({ id }: { id: string }) {
   const [attempt, setAttempt] = useState(0);
   const [view, setView] = useState<"schedule" | "map">("schedule");
   const [welcome, setWelcome] = useState(false);
+  const live = useLive(id);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [cardOpen, setCardOpen] = useState(false);
+  function openMember(userId: string) {
+    setSelectedId(userId);
+    setCardOpen(true);
+  }
 
   // Arriving from "Join plan": greet them and ask where they're coming from.
   useEffect(() => {
@@ -172,6 +182,8 @@ export function PlanDetails({ id }: { id: string }) {
         </div>
       </motion.section>
 
+      <LateBanner live={live} onOpenMember={openMember} />
+
       {me && !me.start && <MyStart plan={plan} start={null} welcome={welcome} onSaved={saveMyStart} />}
 
       <DayAtAGlance plan={plan} />
@@ -197,6 +209,8 @@ export function PlanDetails({ id }: { id: string }) {
               >Directions <ExternalLink size={14} aria-hidden="true" /></a>
             </div>
 
+            <div className="mt-5"><LiveBar live={live} /></div>
+
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={view}
@@ -205,7 +219,7 @@ export function PlanDetails({ id }: { id: string }) {
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2 }}
               >
-                {view === "map" ? <div className="mt-6"><PlanMap venue={plan.game.venue} stops={plan.stops} crew={plan.members} /></div> : <>
+                {view === "map" ? <div className="mt-6"><PlanMap venue={plan.game.venue} stops={plan.stops} crew={plan.members} liveLocations={live.locations} alerts={live.latestAlert} now={live.now} onSelect={openMember} /></div> : <>
                   <ScheduleTimeline plan={plan} />
                   {!route && <p className="mt-2 text-sm text-slate-400">This plan doesn’t have a saved route. Use Directions for current travel times.</p>}
                   {route?.warnings.map((warning, index) => <p key={index} className="mt-3 rounded-2xl border border-amber-300/25 bg-amber-300/[0.07] p-4 text-sm text-amber-100">{warning}</p>)}
@@ -230,6 +244,7 @@ export function PlanDetails({ id }: { id: string }) {
             members={plan.members}
             viewerRole={plan.role}
             onChange={members => setPlan(current => current && { ...current, members })}
+            onSelect={openMember}
           />
           <section className="gp-panel p-5 sm:p-6" aria-labelledby="prefs-heading">
             <h2 id="prefs-heading" className="font-display text-lg font-bold text-white">Plan settings</h2>
@@ -248,6 +263,14 @@ export function PlanDetails({ id }: { id: string }) {
           <PlanActions planId={plan.id} role={plan.role} />
         </aside>
       </div>
+
+      <MemberCard
+        plan={plan}
+        member={plan.members?.find(member => member.userId === selectedId) ?? null}
+        live={live}
+        open={cardOpen}
+        onClose={() => setCardOpen(false)}
+      />
     </div>}
   </PlansShell>;
 }
