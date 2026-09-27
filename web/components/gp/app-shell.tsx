@@ -3,9 +3,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { CalendarHeart, ChevronDown, Home, LogIn, LogOut, Search, Settings, Ticket, UserRound } from "lucide-react";
+import { CalendarHeart, ChevronDown, Home, LogIn, LogOut, Search, Settings, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ButtonLink } from "./button";
+import { LogoMark } from "./logo-mark";
 import { Portal } from "./portal";
 import { useToast } from "./toast";
 import { useUser } from "./user";
@@ -19,11 +20,11 @@ const NAV = [
 export function Logo({ compact = false }: { compact?: boolean }) {
   return <Link href="/" className="group flex items-center gap-2.5 rounded-xl font-display text-lg font-extrabold tracking-tight text-white">
     <motion.span
-      whileHover={{ rotate: -12, scale: 1.08 }}
+      whileHover={{ rotate: -10, scale: 1.08 }}
       transition={{ type: "spring", stiffness: 400, damping: 12 }}
-      className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-mint-300 to-glow-cyan text-night-950 shadow-glow-sm"
+      className="block rounded-xl shadow-glow-sm"
     >
-      <Ticket size={20} strokeWidth={2.4} aria-hidden="true" />
+      <LogoMark size={40} />
     </motion.span>
     {!compact && <span>Philly <span className="gp-gradient-text">GamePlan</span></span>}
   </Link>;
